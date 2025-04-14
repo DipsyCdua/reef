@@ -1,0 +1,63 @@
+---
+title: "Heatwaves_and_Coral_Recovery"
+author: "Chengxi"
+date: "2025-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+```{r}
+library(DBI)
+library(RPostgres)
+library(RSQLite)
+```
+
+
+# use to load the data to db
+```{r}
+sqlite_con <- dbConnect(RSQLite::SQLite(), "D:/R_studio_working_dir/DATA3888_group/Heatwaves and Coral Recovery Database (HeatCRD) SQLITE.db")
+```
+
+# Must connect and disconect after use
+```{r}
+con <- dbConnect(
+  RPostgres::Postgres(),
+  dbname = "Heatwaves and Coral Recovery",
+  host = "localhost",
+  port = 5432,
+  user = "postgres",
+  password = "magic123"
+)
+```
+
+# write data into db
+
+```{r}
+# List SQLite tables
+tables <- dbListTables(sqlite_con)
+
+# For each table, read from SQLite and write to PostgreSQL
+for (tbl in tables) {
+  data <- dbReadTable(sqlite_con, tbl)
+  dbWriteTable(con, tbl, data, overwrite = TRUE)
+}
+```
+
+```{r}
+for (tbl in tables) {
+  cat("Table:", tbl, "\n")
+  cols <- dbListFields(sqlite_con, tbl)
+  print(cols)
+  cat("\n")
+}
+```
