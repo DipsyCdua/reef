@@ -19,6 +19,8 @@ install.packages("RSQLite")
 library(DBI)
 library(RPostgres)
 library(RSQLite)
+library(dplyr)
+library(mgcv)
 ```
 
 
@@ -70,6 +72,67 @@ cmd <- "SELECT * FROM \"Query_6_Sites_with_Multiple_Sample_Events\" LIMIT 5"
 result <- dbGetQuery(con, cmd)
 result
 ```
+
+```{r}
+dbListTables(con)
+```
+
+
+```{r}
+sql <- "
+SELECT 
+  se.\"Date_Year\"    AS Year,
+  e.\"SSTA_DHWMean\"  AS DHW,
+  b.\"Bleaching_Prevalence_Score\" AS BleachScore
+FROM \"Sample_Event_tbl\"    AS se
+JOIN \"Environmental_tbl\"   AS e  
+  ON se.\"Sample_ID\" = e.\"Sample_ID\"
+JOIN \"Bleaching_tbl\"       AS b  
+  ON se.\"Sample_ID\" = b.\"Sample_ID\"
+WHERE e.\"SSTA_DHWMean\" IS NOT NULL
+  AND b.\"Bleaching_Prevalence_Score\" IS NOT NULL;
+"
+
+raw <- dbGetQuery(con, sql)
+
+raw
+```
+
+
+```{r}
+head(raw)
+summary(raw)
+anyNA(raw)
+```
+
+```{r}
+yearly <- raw %>%
+  group_by(year) %>%
+  summarise(
+    mean_DHW       = mean(dhw, na.rm = TRUE),
+    mean_BleachPct = mean(bleachscore, na.rm = TRUE),
+    n_samples      = n()
+  ) %>%
+  ungroup()
+
+# Verify
+print(yearly)
+```
+
+```{r}
+gam_mod <- gam(
+  mean_BleachPct ~ s(year, k = 10) + s(mean_DHW, k = 10),
+  data   = yearly,
+  family = gaussian()    # or adjust if BleachPct is bounded/count data
+)
+
+# Model summary
+summary(gam_mod)
+
+# Plot the smooth terms
+plot(gam_mod, shade = TRUE, pages = 1)
+```
+
 
 
 # Must Disconnect
