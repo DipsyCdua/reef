@@ -115,7 +115,6 @@ yearly <- raw %>%
   ) %>%
   ungroup()
 
-# Verify
 print(yearly)
 ```
 
@@ -123,13 +122,11 @@ print(yearly)
 gam_mod <- gam(
   mean_BleachPct ~ s(year, k = 10) + s(mean_DHW, k = 10),
   data   = yearly,
-  family = gaussian()    # or adjust if BleachPct is bounded/count data
+  family = gaussian()
 )
 
-# Model summary
 summary(gam_mod)
 
-# Plot the smooth terms
 plot(gam_mod, shade = TRUE, pages = 1)
 ```
 
