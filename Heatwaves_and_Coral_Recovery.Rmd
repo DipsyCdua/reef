@@ -20,6 +20,7 @@ When you click the **Knit** button a document will be generated that includes bo
 library(DBI)
 library(RPostgres)
 library(RSQLite)
+library(sf)
 ```
 
 
@@ -122,4 +123,21 @@ year_range <- dbGetQuery(con,'SELECT MAX("Date_Year"), MIN("Date_Year") FROM "jo
 year_range
 ```
 
+```{r}
+joined_df$Event_Date <- as.Date(
+  with(joined_df, paste(Date_Year, Date_Month, Date_Day, sep = "-")),
+  format = "%Y-%m-%d"
+)
+
+joined_df
+```
+
+```{r}
+joined_df$geometry <- st_as_sfc(
+  paste0("POINT(", joined_df$Longitude_Degrees, " ", joined_df$Latitude_Degrees, ")"),
+  crs = 4326
+)
+
+joined_df
+```
 
