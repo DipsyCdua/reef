@@ -61,3 +61,65 @@ for (tbl in tables) {
   cat("\n")
 }
 ```
+
+
+```{r}
+cmd <- "SELECT * FROM \"Query_6_Time_Series_Sites\" 
+        LIMIT 5"
+result <- dbGetQuery(con, cmd)
+result
+```
+
+#join Site_Description_tbl and Sample_Event_tbl and cover_tbl and Thermal_Stress_tbl by sample_id
+
+```{r}
+joined_df <- dbGetQuery(con, '
+  SELECT
+    sd.*,
+    se."Sample_ID",
+    se."Date_Day",
+    se."Date_Month",
+    se."Date_Year",
+    se."Depth" AS "Event_Depth",
+    se."Comments" AS "Event_Comments",
+    c."Percent_Hard_Coral_Cover",
+    c."Comments" AS "Cover_Comments",
+    ts."ClimSST",
+    ts."Temperature_Kelvin",
+    ts."Temperature_Mean",
+    ts."Temperature_Minimum",
+    ts."Temperature_Maximum",
+    ts."Temperature_Kelvin_Standard_Deviation",
+    ts."Windspeed",
+    ts."SSTA",
+    ts."SSTA_Mean",
+    ts."SSTA_Minimum",
+    ts."SSTA_Maximum",
+    ts."SSTA_DHW",
+    ts."TSA",
+    ts."TSA_Mean",
+    ts."TSA_DHWMean"
+  FROM "Thermal_Stress_tbl" AS ts
+  JOIN "Cover_tbl" AS c  ON ts."Sample_ID"  = c."Sample_ID"
+  JOIN "Sample_Event_tbl" AS se ON c."Sample_ID"   = se."Sample_ID"
+  JOIN "Site_Description_tbl" AS sd ON se."Site_ID" = sd."Site_ID"
+  ORDER BY "Date_Year"
+')
+
+joined_df
+
+```
+
+```{r}
+new_table_name <- "joined_coral_thermal_data"
+dbWriteTable(con, new_table_name, joined_df, overwrite = TRUE)
+
+cat("New table '", new_table_name, "' has been created in the database.\n", sep = "")
+```
+
+```{r}
+year_range <- dbGetQuery(con,'SELECT MAX("Date_Year"), MIN("Date_Year") FROM "joined_coral_thermal_data"')
+year_range
+```
+
+
