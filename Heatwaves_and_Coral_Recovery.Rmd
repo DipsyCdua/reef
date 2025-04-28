@@ -21,7 +21,12 @@ library(DBI)
 library(RPostgres)
 library(RSQLite)
 library(sf)
+library(dplyr)
+library(tidyr)
 ```
+
+
+
 
 
 # use to load the data to db
@@ -65,12 +70,111 @@ for (tbl in tables) {
 
 
 ```{r}
-cmd <- "SELECT * FROM \"Query_6_Time_Series_Sites\" 
-        LIMIT 5"
+cmd <- "SELECT * FROM \"Query_9_Time_Series_All_Variables\" 
+        WHERE \"State_Island_Province_Name\" = 'Great Barrier Reef'"
 result <- dbGetQuery(con, cmd)
 result
 ```
 
+```{r}
+year_range <- dbGetQuery(con,'SELECT MAX("Date_Year"), MIN("Date_Year") FROM "Query_9_Time_Series_All_Variables\" WHERE \"State_Island_Province_Name\" = \'Great Barrier Reef\'')
+year_range
+```
+
+```{r}
+colnames(result)
+```
+
+```{r}
+result %>%
+  summarize(
+    empty_month = sum(is.na(Date_Month) | Date_Month == ""),
+    empty_day  = sum(is.na(Date_Day)  | Date_Year   == "")
+  )
+#it seems empty_month and empty_day appears in same row and there are 342 this kind of row
+```
+
+```{r}
+result$Date_Year  <- as.integer(result$Date_Year)
+result$Date_Month <- as.integer(result$Date_Month)
+result$Date_Day   <- as.integer(result$Date_Day)
+
+#result$Date_Day[ is.na(result$Date_Day) ] <- 1
+
+result$Date <- as.Date(
+  paste(result$Date_Year,
+        result$Date_Month,
+        result$Date_Day,
+        sep = "-"),
+  format = "%Y-%m-%d"
+)
+result
+```
+
+```{r}
+result <- result %>% 
+  filter(!is.na(Date))
+result
+```
+
+```{r}
+result$Latitude_Degrees  <- as.numeric(result$Latitude_Degrees)
+result$Longitude_Degrees <- as.numeric(result$Longitude_Degrees)
+
+result <- result[ !is.na(result$Latitude_Degrees) & 
+                  !is.na(result$Longitude_Degrees), ]
+
+result$geometry <- st_as_sfc(
+  paste0(
+    "POINT(",
+      result$Longitude_Degrees, " ",
+      result$Latitude_Degrees,
+    ")"
+  ),
+  crs = 4326
+)
+result
+```
+
+
+# save into db
+
+```{r}
+result_sf <- st_as_sf(
+  result,
+  sf_column_name = "geometry",
+  crs            = 4326
+)
+
+```
+
+```{r}
+result_sf
+```
+
+# please only execute once
+
+```{r}
+DBI::dbExecute(con, "CREATE EXTENSION IF NOT EXISTS postgis;")
+DBI::dbExecute(con, "CREATE EXTENSION IF NOT EXISTS postgis_topology;")
+```
+```{r}
+DBI::dbGetQuery(con, "SELECT * FROM pg_extension;")
+```
+
+
+```{r}
+st_write(
+  obj         = result_sf,
+  dsn         = con,
+  layer       = "coral_recovery_GBR", 
+  delete_layer= TRUE
+)
+```
+
+
+
+#not use below
 #join Site_Description_tbl and Sample_Event_tbl and cover_tbl and Thermal_Stress_tbl by sample_id
 
 ```{r}
