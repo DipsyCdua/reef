@@ -1,0 +1,137 @@
+---
+title: "hw_shiny"
+author: "Chengxi"
+date: "2025-04-30"
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# library
+```{r}
+library(shiny)
+library(leaflet)
+library(DBI)
+library(RPostgres)
+library(sf)
+library(dplyr)
+```
+
+# establish DB connection
+```{r}
+
+con <- dbConnect(
+  RPostgres::Postgres(),
+  dbname   = "Heatwaves and Coral Recovery",
+  host     = "localhost",
+  port     = 5432,
+  user     = "postgres",
+  password = "magic123"
+)
+```
+
+```{r}
+coral_all <- st_read(
+  dsn   = con,
+  layer = "coral_recovery_GBR",
+  quiet = TRUE
+)
+
+coral_all <- coral_all %>%
+  filter(SSTA_DHW != "Non") %>%
+  mutate(
+    SSTA_DHW  = as.numeric(SSTA_DHW),
+    Date_Year = as.integer(Date_Year)
+  )
+
+years <- coral_all %>%
+  pull(Date_Year) %>%
+  unique() %>%
+  sort() %>%
+  na.omit()
+```
+
+```{r}
+years
+```
+
+# UI function
+
+```{r}
+ui <- fluidPage(
+  titlePanel("Great Barrier Reef DHW by Year"),
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput(
+        inputId = "year",
+        label   = "Select year:",
+        min     = min(years),
+        max     = max(years),
+        value   = min(years),
+        step    = 1,
+        sep     = ""
+      )
+    ),
+    mainPanel(
+      leafletOutput("map", height = "600px")
+    )
+  )
+)
+```
+
+# Server function
+
+```{r}
+server <- function(input, output, session) {
+  coral_year <- reactive({
+    req(input$year)
+    coral_all %>% filter(Date_Year == input$year)
+  })
+
+  pal <- colorNumeric(
+    palette = "YlOrRd",
+    domain  = coral_all$SSTA_DHW
+  )
+
+
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      setView(lng = 147.6, lat = -18.3, zoom = 5)
+  })
+
+  observe({
+    df <- coral_year()
+
+    leafletProxy("map", data = df) %>%
+      clearMarkers() %>%
+      clearControls() %>%
+      addCircleMarkers(
+        radius   = 5,
+        stroke   = FALSE,
+        fillOpacity = 0.7,
+        color    = ~pal(SSTA_DHW),
+        popup    = ~paste0(
+                      "<strong>Date:</strong> ", Date, "<br/>",
+                      "<strong>SSTA:</strong> ", round(SSTA,2), "<br/>",
+                      "<strong>DHW:</strong> ", round(SSTA_DHW,2)
+                    )
+      ) %>%
+      addLegend(
+        position = "topright",
+        pal      = pal,
+        values   = coral_all$SSTA_DHW,
+        title    = "SSTA DHW",
+        opacity  = 0.8
+      )
+  })
+}
+```
+
+# run
+```{r}
+shinyApp(ui, server)
+```
+
