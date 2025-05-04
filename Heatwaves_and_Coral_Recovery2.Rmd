@@ -8,28 +8,26 @@ output: html_document
 library(dplyr)
 library(tidyr)
 library(ggpubr)
-
-```
-
-
-```{r}
 library(DBI)
 library(RPostgres)
 library(RSQLite)
+library(ranger)
+library(ggplot2)
+library(Metrics)
 ```
 
 ```{r}
-sqlite_con <- dbConnect(RSQLite::SQLite(), "~/Desktop/Heatwaves and Coral Recovery Database (HeatCRD) SQLITE.db")
+sqlite_con <- dbConnect(RSQLite::SQLite(), "D:/R_studio_working_dir/DATA3888_group/Heatwaves and Coral Recovery Database (HeatCRD) SQLITE.db")
 ```
 
 ```{r}
 con <- dbConnect(
   RPostgres::Postgres(),
-  dbname = "Heatwaves and Coral Recovery Database",
+  dbname = "Heatwaves and Coral Recovery",
   host = "localhost",
   port = 5432,
   user = "postgres",
-  password = "123456"
+  password = "magic123"
 )
 ```
 
@@ -263,12 +261,6 @@ shinyApp(ui, server)
 
 
 ```{r}
-library(dplyr)
-library(tidyr)
-library(ranger)
-library(ggplot2)
-library(Metrics)
-library(ggpubr)
 
 required_columns <- c("Site_ID", "Date_Year", "Date_Month", "SOI", "SSTA_DHW", 
                      "Latitude_Degrees", "Longitude_Degrees", "Region", 
@@ -319,16 +311,8 @@ cat("R-squared:", cor(test_data$SSTA_DHW, test_data$predicted_DHW)^2, "\n")
 
 
 ```
-```{r}
-
-```
-
 Prediction
 ```{r}
-library(dplyr)
-library(ranger)
-library(ggplot2)
-
 missing_dhw <- sum(is.na(full_data$SSTA_DHW))
 cat("Number of missing values in SSTA_DHW:", missing_dhw, "\n")
 
