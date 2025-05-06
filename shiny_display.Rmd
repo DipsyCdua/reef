@@ -1,0 +1,226 @@
+---
+title: "shiny_display"
+author: "Chengxi"
+date: "2025-05-06"
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# complcated version(could have huge change later)
+
+```{r}
+library(shiny)
+library(shinydashboard)
+library(markdown)
+library(leaflet)
+library(DBI)
+library(RPostgres)
+library(sf)
+library(dplyr)
+```
+
+```{r}
+con <- dbConnect(
+  RPostgres::Postgres(),
+  dbname   = "Heatwaves and Coral Recovery",
+  host     = "localhost",
+  port     = 5432,
+  user     = "postgres",
+  password = "magic123"
+)
+coral_all <- st_read(
+  dsn   = con,
+  layer = "coral_recovery_GBR",
+  quiet = TRUE
+) %>%
+  filter(SSTA_DHW != "Non") %>%
+  mutate(
+    SSTA_DHW  = as.numeric(SSTA_DHW),
+    Date_Year = as.integer(Date_Year)
+  )
+years <- sort(unique(na.omit(coral_all$Date_Year)))
+pal <- colorNumeric(palette = "YlOrRd", domain = coral_all$SSTA_DHW)
+```
+
+
+```{r}
+ui <- dashboardPage(
+  dashboardHeader(title = "Great Barrier Reef Dashboard"),
+  dashboardSidebar(
+    sidebarMenu(
+      id = "tabs",
+      menuItem("Dashboard",    tabName = "dashboard"),
+      menuItem("Introduction", tabName = "introduction"),
+      menuItem("Map",          tabName = "map"),
+      menuItem("ENSO+DHW",     tabName = "enso"),
+      menuItem("Relation",     tabName = "relation")
+    )
+  ),
+  dashboardBody(
+    tabItems(
+      # Dashboard
+      tabItem(tabName = "dashboard",
+        h2("Dashboard Home", align = "center")
+      ),
+      # Introduction
+      tabItem(tabName = "introduction",
+        includeMarkdown("D:/R_studio_working_dir/DATA3888_group/intro_test.md")
+      ),
+      # Map
+      tabItem(tabName = "map",
+        fluidRow(
+          box(width = 4,
+            sliderInput(
+              inputId = "year",
+              label   = "Select year:",
+              min     = min(years),
+              max     = max(years),
+              value   = min(years),
+              step    = 1,
+              sep     = ""
+            )
+          ),
+          box(width = 8,
+            leafletOutput("map", height = "600px")
+          )
+        )
+      ),
+      # ENSO+DHW
+      tabItem(tabName = "enso",
+        h2("ENSO+DHW Analysis", align = "center")
+      ),
+      # Relation
+      tabItem(tabName = "relation",
+        h2("Relation Plot", align = "center")
+      )
+    )
+  )
+)
+
+```
+
+```{r}
+server <- function(input, output, session) {
+  # Reactive filtered data
+  coral_year <- reactive({
+    req(input$year)
+    coral_all %>% filter(Date_Year == input$year)
+  })
+
+  # Render map with markers
+  output$map <- renderLeaflet({
+    df <- coral_year()
+    leaflet(df) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      setView(lng = 147.6, lat = -18.3, zoom = 5) %>%
+      addCircleMarkers(
+        radius      = 5,
+        stroke      = FALSE,
+        fillOpacity = 0.7,
+        color       = ~pal(SSTA_DHW),
+        popup       = ~paste0(
+          "<strong>Date:</strong> ", Date, "<br/>",
+          "<strong>SSTA:</strong> ", round(SSTA, 2), "<br/>",
+          "<strong>DHW:</strong> ", round(SSTA_DHW, 2)
+        )
+      ) %>%
+      addLegend(
+        position = "topright",
+        pal      = pal,
+        values   = coral_all$SSTA_DHW,
+        title    = "SSTA DHW",
+        opacity  = 0.8
+      )
+  })
+}
+```
+
+```{r}
+shinyApp(ui, server)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# no plot pure version
+```{r}
+library(shiny)
+library(shinydashboard)
+library(markdown)
+```
+
+```{r}
+ui <- dashboardPage(
+  dashboardHeader(title = "Title"),
+  dashboardSidebar(
+    sidebarMenu(
+      id = "tabs",
+      menuItem("Dashboard",    tabName = "dashboard"),
+      menuItem("Introduction", tabName = "introduction"),
+      menuItem("Map",          tabName = "map"),
+      menuItem("ENSO+DHW",     tabName = "enso"),
+      menuItem("Relation",     tabName = "relation")
+    )
+  ),
+  dashboardBody(
+    fluidRow(
+      box(
+        width = 12, status = "primary", solidHeader = TRUE,
+        uiOutput("main_content")
+      )
+    )
+  )
+)
+```
+
+```{r}
+server <- function(input, output, session) {
+  # labels for other tabs
+  labels <- c(
+    dashboard    = "Dashboard",
+    introduction = "Introduction",
+    map          = "Map",
+    enso         = "ENSO+DHW",
+    relation     = "Relation"
+  )
+
+  output$main_content <- renderUI({
+    sel <- input$tabs
+    if (is.null(sel) || sel == "") {
+      h4("No tab selected")
+    } else if (sel == "introduction") {
+      # Render markdown from an external file
+      # Make sure you have an 'introduction.md' in your working directory
+      includeMarkdown("D:/R_studio_working_dir/DATA3888_group/intro_test.md")
+    } else {
+      # For other tabs, just echo the label
+      h2(labels[sel])
+    }
+  })
+}
+```
+
+```{r}
+shinyApp(ui, server)
+```
+
