@@ -1,0 +1,205 @@
+---
+title: "imane"
+format: html
+editor: source
+---
+
+# shiny app - MAP
+```{r}
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(stringr)
+library(lubridate)
+library(readr)
+library(tidyr)
+library(viridis)
+library(plotly)
+```
+
+# temperature variables (DHW)
+```{r}
+#----REEF TEMP----
+# change this to the folder directory "with_date"
+data_dir = "/Users/imanelattab/Desktop/DATA3888/reef_dbs/noaa_data/with_date"
+csv_files = list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
+
+# read and format each csv
+load_and_process_csv = function(file) {
+  df = read_csv(file)
+  df = df|>
+    mutate(
+      year = year(as.Date(date)),
+      # extract lon/lat from WKT geometry string
+      lon = as.numeric(str_extract(geometry, "(?<=\\().+?(?=\\s)")),
+      lat = as.numeric(str_extract(geometry, "(?<=\\s)-?\\d+\\.\\d+(?=\\))"))
+    )
+  return(df)
+}
+
+all_data = bind_rows(lapply(csv_files, load_and_process_csv))
+
+# yearly averages per point
+yearly_avg = all_data |>
+  group_by(year, lon, lat) |>
+  summarise(mean_dhw = mean(mean_dhw, na.rm = TRUE), .groups = "drop") |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+pal = colorNumeric(palette = viridis(100), domain = yearly_avg$mean_dhw)
+```
+
+# Boundaries
+
+bioregions (reefal and non-reefal) and management areas
+```{r}
+#----BOUNDARIES----
+# bioregions overlay data
+bioregions_sf = st_read("/Users/imanelattab/Downloads/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
+
+# add reefal status
+bioregions_sf = bioregions_sf |> 
+  mutate(
+    reef_status = factor(REEF_ID, levels = c(0, 1), labels = c("Non-Reefal", "Reefal"))
+  )
+
+# management zones
+manage_sf = st_read("/Users/imanelattab/Downloads/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161/Great_Barrier_Reef_Marine_Park_Management_Areas.shp")
+```
+
+# soi index
+```{r}
+# soi data
+soi = read.csv("/Users/imanelattab/Desktop/DATA3888/reef_dbs/soi_index.csv")
+str(soi)
+
+# date
+soi = soi |> mutate(date = as.Date(date))
+
+# monthly average df for entire reef
+monthly_dhw = all_data |>
+  mutate(month = month(as.Date(date), label = TRUE, abbr = TRUE),
+         year = year(as.Date(date))) |>
+  group_by(year, month) |>
+  summarise(mean_dhw = mean(mean_dhw, na.rm = TRUE), .groups = "drop")
+
+```
+
+
+# shiny app
+```{r}
+#----SHINY APP----
+# ui
+ui = dashboardPage(
+  dashboardHeader(title = "GBR Heat Map"),
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Map", tabName = "map", icon = icon("globe")),
+      menuItem("ENSO and Temp", tabName = "enso_temp", icon = icon("chart-line"))),
+    sliderInput("year", "Select Year:", min = min(yearly_avg$year), max = max(yearly_avg$year),
+                value = min(yearly_avg$year), step = 1, sep = "")),
+  dashboardBody(
+    tabItems(
+      tabItem(tabName = "map",
+        leafletOutput("map", height = "700px")
+      ),
+      tabItem(tabName = "enso_temp",
+        fluidRow(
+          box(title = "SOI Anomaly Over Time", width = 12,
+              plotOutput("soi_plot", height = "300px"))
+        ),
+      fluidRow(
+        box(title = "Monthly Mean DHW for Selected Year", width = 12,
+            plotOutput("dhw_monthly_plot", height = "300px"))
+        )
+  )
+)
+  )
+)
+
+# server
+server = function(input, output, session) {
+  filtered_data = reactive({
+    yearly_avg |> 
+      filter(year == input$year)
+  })
+  # map
+  output$map <- renderLeaflet({
+    leaflet() |>
+      addProviderTiles("CartoDB.Positron") |>
+      setView(lng = 147.6, lat = -18.3, zoom = 5)
+  })
+  # plot 1: soi over time
+  output$soi_plot = renderPlot({
+    ggplot(soi, aes(x = date, y = soi_anomaly)) +
+      geom_line(color = "#2c7fb8") +
+      labs(x = "Date", y = "SOI Anomaly", title = "Southern Oscillation Index (SOI) Anomaly Over Time") +
+      theme_minimal()
+    # ggplotly(p1)
+  })
+
+  # plot 2: monthly mean DHW for each year
+  output$dhw_monthly_plot = renderPlot({
+    filtered_monthly = monthly_dhw |> filter(year == input$year)
+    
+    ggplot(filtered_monthly, aes(x = month, y = mean_dhw, group = 1)) +
+      geom_line(color = "#d95f02") +
+      geom_point() +
+      labs(x = "Month", y = "Mean DHW", title = paste("Monthly Mean DHW in", input$year)) +
+      theme_minimal()
+    # ggplotly(p2)
+  })
+  
+  observe({
+    leafletProxy("map", data = filtered_data()) |>
+      clearMarkers() |>
+      clearControls() |>
+      addCircleMarkers(
+        radius = 3,
+        stroke = FALSE,
+        fillOpacity = 0.7,
+        color = ~pal(mean_dhw),
+        popup = ~paste0("DHW: ", round(mean_dhw, 2))
+      ) |>
+      addLegend(
+        "topright", pal = pal, values = ~mean_dhw,
+        title = "Mean DHW", opacity = 0.8
+      ) |>
+      # reefal
+      addPolygons(
+        data = filter(bioregions_sf, reef_status == "Reefal"),
+        fillColor = "lightblue", color = "lightblue",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2,
+        group = "Reefal",
+        label = ~DESCRIP
+      ) |>
+      # non-reefal
+      addPolygons(
+        data = filter(bioregions_sf, reef_status == "Non-Reefal"),
+        fillColor = "lightgreen", color = "lightgreen",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2,
+        group = "Non-Reefal",
+        label = ~DESCRIP
+      ) |>
+      addLayersControl(
+        overlayGroups = c("Reefal", "Non-Reefal", "Management Zones"),
+        options = layersControlOptions(collapsed = FALSE)
+      ) |>
+      # management zones
+      addPolygons(
+        data = manage_sf,
+        fillColor = "orange",
+        color = "orange",
+        weight = 1,
+        opacity = 0.6,
+        fillOpacity = 0.15,
+        group = "Management Zones",
+        label = ~AREA_DESCR
+      )
+  })
+}
+
+shinyApp(ui, server)
+```
+
