@@ -5,7 +5,7 @@ editor: source
 ---
 
 # shiny app - MAP
-```{r}
+```{r setup, echo=FALSE}
 library(shiny)
 library(shinydashboard)
 library(dplyr)
@@ -22,32 +22,77 @@ library(plotly)
 # temperature variables (DHW)
 ```{r}
 #----REEF TEMP----
-# change this to the folder directory "with_date"
-data_dir = "/Users/imanelattab/Desktop/DATA3888/reef_dbs/noaa_data/with_date"
-csv_files = list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
+# this will be the directory to the "NOAA_data" folder in the google drive
+data_dir <- "/Users/imanelattab/Desktop/DATA3888/reef_dbs/noaa_data/with_date/within_gbr"
+csv_files <- list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
 
 # read and format each csv
-load_and_process_csv = function(file) {
-  df = read_csv(file)
-  df = df|>
+load_and_process_csv <- function(file) {
+  df <- read_csv(file)
+  df <- df|>
     mutate(
       year = year(as.Date(date)),
-      # extract lon/lat from WKT geometry string
-      lon = as.numeric(str_extract(geometry, "(?<=\\().+?(?=\\s)")),
-      lat = as.numeric(str_extract(geometry, "(?<=\\s)-?\\d+\\.\\d+(?=\\))"))
+      # extract lon and lat from "c(lon, lat)"
+      lon = as.numeric(str_extract(geometry, "(?<=c\\()[^,]+")),
+      lat = as.numeric(str_extract(geometry, "(?<=,\\s)-?\\d+\\.\\d+(?=\\))"))
     )
   return(df)
 }
 
-all_data = bind_rows(lapply(csv_files, load_and_process_csv))
+# combine all csv files to 1 dataframe
+all_data <- bind_rows(lapply(csv_files, load_and_process_csv))
 
-# yearly averages per point
-yearly_avg = all_data |>
+# drop original coordinate column, since we have lon and lat
+all_date_clean <- all_data |>
+  select(-geometry)
+
+
+# ONLY DHW yearly averages per point (for the map in tab1 of shiny)
+yearly_avg <- all_data |>
   group_by(year, lon, lat) |>
   summarise(mean_dhw = mean(mean_dhw, na.rm = TRUE), .groups = "drop") |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326)
 
+# ONLY DHW monthly average df for entire GBR (for the plot in tab2 of shiny)
+monthly_dhw <- all_data |>
+  mutate(month = month(as.Date(date), label = TRUE, abbr = TRUE),
+         year = year(as.Date(date))) |>
+  group_by(year, month) |>
+  summarise(mean_dhw = mean(mean_dhw, na.rm = TRUE), .groups = "drop")
+
+# colour blind friendly palette
 pal = colorNumeric(palette = viridis(100), domain = yearly_avg$mean_dhw)
+```
+
+
+right now, the shiny app only presents the mean_dhw data (yearly_avg, monthly_dhw) 
+
+but please use these dataframes since they include all 3 variables (yearly_temp_avg, monthly_temp)
+```{r}
+
+# please use this for the map because this contains all 3 temperature variables
+
+# ALL TEMPERATURE VARIABLES yearly avg per point on GBR
+yearly_temp_avg <- all_data |>
+  group_by(year, lon, lat) |>
+  summarise(
+    mean_dhw = mean(mean_dhw, na.rm = TRUE),
+    mean_sst = mean(mean_sst, na.rm = TRUE),
+    mean_ssta = mean(mean_ssta, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+# ALL TEMPERATURE VARIABLES monthly avg for entire GBR
+monthly_temp <- all_data |>
+  mutate(month = month(as.Date(date), label = TRUE, abbr = TRUE),
+         year = year(as.Date(date))) |>
+  group_by(year, month) |>
+  summarise(
+    mean_dhw = mean(mean_dhw, na.rm = TRUE), 
+    mean_sst = mean(mean_sst, na.rm = TRUE),
+    mean_ssta = mean(mean_ssta, na.rm = TRUE),
+    .groups = "drop")
 ```
 
 # Boundaries
@@ -55,43 +100,39 @@ pal = colorNumeric(palette = viridis(100), domain = yearly_avg$mean_dhw)
 bioregions (reefal and non-reefal) and management areas
 ```{r}
 #----BOUNDARIES----
-# bioregions overlay data
-bioregions_sf = st_read("/Users/imanelattab/Downloads/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
-
+# 1. bioregions overlay data
+bioregions_sf <- st_read("/Users/imanelattab/Downloads/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
 # add reefal status
-bioregions_sf = bioregions_sf |> 
+bioregions_sf <- bioregions_sf |> 
   mutate(
     reef_status = factor(REEF_ID, levels = c(0, 1), labels = c("Non-Reefal", "Reefal"))
   )
 
-# management zones
-manage_sf = st_read("/Users/imanelattab/Downloads/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161/Great_Barrier_Reef_Marine_Park_Management_Areas.shp")
+# 2. management zones
+manage_sf <- st_read("/Users/imanelattab/Downloads/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161/Great_Barrier_Reef_Marine_Park_Management_Areas.shp")
+
+# 3. shelf zones (will complete this before monday week 12, for now use management zones in the models)
 ```
 
 # soi index
 ```{r}
-# soi data
-soi = read.csv("/Users/imanelattab/Desktop/DATA3888/reef_dbs/soi_index.csv")
+# read in CLEAN soi data (this is in Reef03_EDA on google drive)
+soi <- read.csv("/Users/imanelattab/Desktop/DATA3888/reef_dbs/soi_index.csv")
 str(soi)
 
-# date
-soi = soi |> mutate(date = as.Date(date))
-
-# monthly average df for entire reef
-monthly_dhw = all_data |>
-  mutate(month = month(as.Date(date), label = TRUE, abbr = TRUE),
-         year = year(as.Date(date))) |>
-  group_by(year, month) |>
-  summarise(mean_dhw = mean(mean_dhw, na.rm = TRUE), .groups = "drop")
-
+# change date column
+soi <- soi |> mutate(date = as.Date(date))
 ```
 
 
 # shiny app
 ```{r}
 #----SHINY APP----
+
+# please make changes here
+
 # ui
-ui = dashboardPage(
+ui <- dashboardPage(
   dashboardHeader(title = "GBR Heat Map"),
   dashboardSidebar(
     sidebarMenu(
@@ -119,19 +160,19 @@ ui = dashboardPage(
 )
 
 # server
-server = function(input, output, session) {
-  filtered_data = reactive({
+server <- function(input, output, session) {
+  filtered_data <- reactive({
     yearly_avg |> 
       filter(year == input$year)
   })
-  # map
+  # map (ONLY DHW RIGHT NOW, needs to have all the temperature variables)
   output$map <- renderLeaflet({
     leaflet() |>
       addProviderTiles("CartoDB.Positron") |>
       setView(lng = 147.6, lat = -18.3, zoom = 5)
   })
   # plot 1: soi over time
-  output$soi_plot = renderPlot({
+  output$soi_plot <- renderPlot({
     ggplot(soi, aes(x = date, y = soi_anomaly)) +
       geom_line(color = "#2c7fb8") +
       labs(x = "Date", y = "SOI Anomaly", title = "Southern Oscillation Index (SOI) Anomaly Over Time") +
@@ -140,7 +181,8 @@ server = function(input, output, session) {
   })
 
   # plot 2: monthly mean DHW for each year
-  output$dhw_monthly_plot = renderPlot({
+  # also needs to have all the temperature variables
+  output$dhw_monthly_plot <- renderPlot({
     filtered_monthly = monthly_dhw |> filter(year == input$year)
     
     ggplot(filtered_monthly, aes(x = month, y = mean_dhw, group = 1)) +
