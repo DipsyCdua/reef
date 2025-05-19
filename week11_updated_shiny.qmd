@@ -17,6 +17,7 @@ library(readr)
 library(tidyr)
 library(viridis)
 library(plotly)
+library(gghighlight)
 ```
 
 # temperature variables (DHW)
@@ -124,498 +125,7 @@ str(soi)
 soi <- soi |> mutate(date = as.Date(date))
 ```
 
-
-# shiny app (old)
-```{r}
-#----SHINY APP----
-
-# please make changes here
-
-# ui
-ui <- dashboardPage(
-  dashboardHeader(title = "GBR Heat Map"),
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Map", tabName = "map", icon = icon("globe")),
-      menuItem("ENSO and Temp", tabName = "enso_temp", icon = icon("chart-line"))),
-    sliderInput("year", "Select Year:", min = min(yearly_avg$year), max = max(yearly_avg$year),
-                value = min(yearly_avg$year), step = 1, sep = "")),
-  dashboardBody(
-    tabItems(
-      tabItem(tabName = "map",
-        leafletOutput("map", height = "700px")
-      ),
-      tabItem(tabName = "enso_temp",
-        fluidRow(
-          box(title = "SOI Anomaly Over Time", width = 12,
-              plotOutput("soi_plot", height = "300px"))
-        ),
-      fluidRow(
-        box(title = "Monthly Mean DHW for Selected Year", width = 12,
-            plotOutput("dhw_monthly_plot", height = "300px"))
-        )
-  )
-)
-  )
-)
-
-# server
-server <- function(input, output, session) {
-  filtered_data <- reactive({
-    yearly_avg |> 
-      filter(year == input$year)
-  })
-  # map (ONLY DHW RIGHT NOW, needs to have all the temperature variables)
-  output$map <- renderLeaflet({
-    leaflet() |>
-      addProviderTiles("CartoDB.Positron") |>
-      setView(lng = 147.6, lat = -18.3, zoom = 5)
-  })
-  # plot 1: soi over time
-  output$soi_plot <- renderPlot({
-    ggplot(soi, aes(x = date, y = soi_anomaly)) +
-      geom_line(color = "#2c7fb8") +
-      labs(x = "Date", y = "SOI Anomaly", title = "Southern Oscillation Index (SOI) Anomaly Over Time") +
-      theme_minimal()
-    # ggplotly(p1)
-  })
-
-  # plot 2: monthly mean DHW for each year
-  # also needs to have all the temperature variables
-  output$dhw_monthly_plot <- renderPlot({
-    filtered_monthly = monthly_dhw |> filter(year == input$year)
-    
-    ggplot(filtered_monthly, aes(x = month, y = mean_dhw, group = 1)) +
-      geom_line(color = "#d95f02") +
-      geom_point() +
-      labs(x = "Month", y = "Mean DHW", title = paste("Monthly Mean DHW in", input$year)) +
-      theme_minimal()
-    # ggplotly(p2)
-  })
-  
-  observe({
-    leafletProxy("map", data = filtered_data()) |>
-      clearMarkers() |>
-      clearControls() |>
-      addCircleMarkers(
-        radius = 3,
-        stroke = FALSE,
-        fillOpacity = 0.7,
-        color = ~pal(mean_dhw),
-        popup = ~paste0("DHW: ", round(mean_dhw, 2))
-      ) |>
-      addLegend(
-        "topright", pal = pal, values = ~mean_dhw,
-        title = "Mean DHW", opacity = 0.8
-      ) |>
-      # reefal
-      addPolygons(
-        data = filter(bioregions_sf, reef_status == "Reefal"),
-        fillColor = "lightblue", color = "lightblue",
-        weight = 1, opacity = 0.5, fillOpacity = 0.2,
-        group = "Reefal",
-        label = ~DESCRIP
-      ) |>
-      # non-reefal
-      addPolygons(
-        data = filter(bioregions_sf, reef_status == "Non-Reefal"),
-        fillColor = "lightgreen", color = "lightgreen",
-        weight = 1, opacity = 0.5, fillOpacity = 0.2,
-        group = "Non-Reefal",
-        label = ~DESCRIP
-      ) |>
-      addLayersControl(
-        overlayGroups = c("Reefal", "Non-Reefal", "Management Zones"),
-        options = layersControlOptions(collapsed = FALSE)
-      ) |>
-      # management zones
-      addPolygons(
-        data = manage_sf,
-        fillColor = "orange",
-        color = "orange",
-        weight = 1,
-        opacity = 0.6,
-        fillOpacity = 0.15,
-        group = "Management Zones",
-        label = ~AREA_DESCR
-      )
-  })
-}
-
-shinyApp(ui, server)
-```
-
-# new ver(v0.1)
-```{r}
-# UI
-ui <- dashboardPage(
-  dashboardHeader(title = "GBR Heat Map"),
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Map",        tabName = "map",      icon = icon("globe")),
-      menuItem("ENSO and Temp", tabName = "enso_temp", icon = icon("chart-line"))
-    )
-    # ---- slider removed from here ----
-  ),
-  dashboardBody(
-    tabItems(
-      
-      # --- Map tab with slider and map side by side ---      
-      tabItem(tabName = "map",
-        fluidRow(
-          column(
-            width = 4,
-            # year selector moved here
-            box(
-              width = NULL, status = "primary", solidHeader = TRUE,
-              sliderInput(
-                inputId = "year",
-                label   = "Select Year:",
-                min     = min(yearly_avg$year),
-                max     = max(yearly_avg$year),
-                value   = min(yearly_avg$year),
-                step    = 1,
-                sep     = ""
-              )
-            )
-          ),
-          column(
-            width = 8,
-            # map output
-            box(
-              width = NULL, status = "primary", solidHeader = TRUE,
-              leafletOutput("map", height = "700px")
-            )
-          )
-        )
-      ),
-      
-      # --- ENSO and Temp tab remains unchanged ---
-      tabItem(tabName = "enso_temp",
-        fluidRow(
-          box(title = "SOI Anomaly Over Time", width = 12,
-              plotOutput("soi_plot", height = "300px"))
-        ),
-        fluidRow(
-          box(title = "Monthly Mean DHW for Selected Year", width = 12,
-              plotOutput("dhw_monthly_plot", height = "300px"))
-        )
-      )
-      
-    )  # end tabItems
-  )  # end dashboardBody
-)  # end dashboardPage
-
-```
-
-```{r}
-server <- function(input, output, session) {
-  filtered_data <- reactive({
-    yearly_avg |> 
-      filter(year == input$year)
-  })
-  # map (ONLY DHW RIGHT NOW, needs to have all the temperature variables)
-  output$map <- renderLeaflet({
-    leaflet() |>
-      addProviderTiles("CartoDB.Positron") |>
-      setView(lng = 147.6, lat = -18.3, zoom = 5)
-  })
-  # plot 1: soi over time
-  output$soi_plot <- renderPlot({
-    ggplot(soi, aes(x = date, y = soi_anomaly)) +
-      geom_line(color = "#2c7fb8") +
-      labs(x = "Date", y = "SOI Anomaly", title = "Southern Oscillation Index (SOI) Anomaly Over Time") +
-      theme_minimal()
-    # ggplotly(p1)
-  })
-
-  # plot 2: monthly mean DHW for each year
-  # also needs to have all the temperature variables
-  output$dhw_monthly_plot <- renderPlot({
-    filtered_monthly = monthly_dhw |> filter(year == input$year)
-    
-    ggplot(filtered_monthly, aes(x = month, y = mean_dhw, group = 1)) +
-      geom_line(color = "#d95f02") +
-      geom_point() +
-      labs(x = "Month", y = "Mean DHW", title = paste("Monthly Mean DHW in", input$year)) +
-      theme_minimal()
-    # ggplotly(p2)
-  })
-  
-  observe({
-    leafletProxy("map", data = filtered_data()) |>
-      clearMarkers() |>
-      clearControls() |>
-      addCircleMarkers(
-        radius = 3,
-        stroke = FALSE,
-        fillOpacity = 0.7,
-        color = ~pal(mean_dhw),
-        popup = ~paste0("DHW: ", round(mean_dhw, 2))
-      ) |>
-      addLegend(
-        "topright", pal = pal, values = ~mean_dhw,
-        title = "Mean DHW", opacity = 0.8
-      ) |>
-      # reefal
-      addPolygons(
-        data = filter(bioregions_sf, reef_status == "Reefal"),
-        fillColor = "lightblue", color = "lightblue",
-        weight = 1, opacity = 0.5, fillOpacity = 0.2,
-        group = "Reefal",
-        label = ~DESCRIP
-      ) |>
-      # non-reefal
-      addPolygons(
-        data = filter(bioregions_sf, reef_status == "Non-Reefal"),
-        fillColor = "lightgreen", color = "lightgreen",
-        weight = 1, opacity = 0.5, fillOpacity = 0.2,
-        group = "Non-Reefal",
-        label = ~DESCRIP
-      ) |>
-      addLayersControl(
-        overlayGroups = c("Reefal", "Non-Reefal", "Management Zones"),
-        options = layersControlOptions(collapsed = FALSE)
-      ) |>
-      # management zones
-      addPolygons(
-        data = manage_sf,
-        fillColor = "orange",
-        color = "orange",
-        weight = 1,
-        opacity = 0.6,
-        fillOpacity = 0.15,
-        group = "Management Zones",
-        label = ~AREA_DESCR
-      )
-  })
-}
-```
-
-
-```{r}
-shinyApp(ui, server)
-```
-# new ver(v0.3) all requirement meeted
-
-```{r}
-yearly_temp_avg <- all_data %>%
-  # extract year first, if you haven't already
-  mutate(year = as.integer(format(as.Date(date), "%Y"))) %>%
-  # group by year and each lon/lat point
-  group_by(year, lon, lat) %>%
-  # compute mean for all three metrics
-  summarise(
-    mean_dhw  = mean(mean_dhw,  na.rm = TRUE),
-    mean_sst  = mean(mean_sst,  na.rm = TRUE),
-    mean_ssta = mean(mean_ssta, na.rm = TRUE),
-    .groups = "drop"
-  ) 
-#%>%
-  # turn into an sf object with WGS84 long/lat
-  #st_as_sf(coords = c("lon", "lat"), crs = 4326)
-```
-
-```{r}
-ui <- dashboardPage(
-  dashboardHeader(title = "GBR Heat Map"),
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Map",         tabName = "map",      icon = icon("globe")),
-      menuItem("ENSO and Temp", tabName = "enso_temp", icon = icon("chart-line"))
-    )
-  ),
-  dashboardBody(
-    tabItems(
-      # ─── Map tab ──────────────────────────────────────────────────────
-      tabItem(tabName = "map",
-        fluidRow(
-          # ←── Controls column
-          column(width = 4,
-            # 1) Year slider
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              sliderInput("year", "Select Year:",
-                min   = min(yearly_temp_avg$year),
-                max   = max(yearly_temp_avg$year),
-                value = min(yearly_temp_avg$year),
-                step  = 1, sep = ""
-              )
-            ),
-            # 2) Model select
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              selectInput("variable", "Model select:",
-                choices = c(
-                  "Mean DHW"  = "mean_dhw",
-                  "Mean SST"  = "mean_sst",
-                  "Mean SSTA" = "mean_ssta"
-                ),
-                selected = "mean_dhw"
-              )
-            ),
-            # 3) Zone checkboxes
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              checkboxGroupInput("zones", "Zone:",
-                choices = c("Reefal", "Non-Reefal", "Management Zones"),
-                selected = c("Reefal", "Non-Reefal", "Management Zones")
-              )
-            )
-          ),
-
-          # ─── Map column
-          column(width = 8,
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              leafletOutput("map", height = "700px")
-            )
-          )
-        )
-      ),
-
-      # ─── ENSO & Temp tab (unchanged) ─────────────────────────────────
-      tabItem(tabName = "enso_temp",
-        fluidRow(
-          box(title = "SOI Anomaly Over Time", width = 12,
-              plotOutput("soi_plot", height = "300px"))
-        ),
-        fluidRow(
-          box(title = "Monthly Mean DHW for Selected Year", width = 12,
-              plotOutput("dhw_monthly_plot", height = "300px"))
-        )
-      )
-    )
-  )
-)
-```
-
-```{r}
-server <- function(input, output, session) {
-
-  # (1) Filter yearly data by year
-  filtered_data <- reactive({
-    req(input$year)
-    yearly_temp_avg %>%
-      filter(year == input$year)
-  })
-
-  # (2) Palette for chosen variable
-  pal <- reactive({
-    colorNumeric(viridis::viridis(100),
-                 domain = filtered_data()[[ input$variable ]])
-  })
-
-  # (3) Base map
-  output$map <- renderLeaflet({
-    leaflet() %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      setView(147.6, -18.3, zoom = 5)
-  })
-
-  # (4) Update on year / model / zones changes
-  observe({
-    df   <- filtered_data()
-    var  <- input$variable
-    vals <- df[[var]]
-    p    <- pal()
-    pop  <- paste0(
-      switch(var,
-        mean_dhw  = "DHW: ",
-        mean_sst  = "SST: ",
-        mean_ssta = "SSTA: "
-      ),
-      round(vals, 2)
-    )
-
-    proxy <- leafletProxy("map", data = df) %>%
-      clearMarkers() %>%
-      clearShapes() %>%
-      clearControls() %>%
-      addCircleMarkers(
-        radius      = 3,
-        stroke      = FALSE,
-        fillOpacity = 0.7,
-        fillColor   = p(vals),
-        popup       = pop
-      ) %>%
-      addLegend(
-        position = "topright",
-        pal      = p,
-        values   = vals,
-        title    = switch(var,
-                     mean_dhw  = "Mean DHW",
-                     mean_sst  = "Mean SST",
-                     mean_ssta = "Mean SSTA"
-                   ),
-        opacity  = 0.8
-      )
-
-    # Conditionally add each polygon layer
-    if ("Reefal" %in% input$zones) {
-      proxy <- proxy %>%
-        addPolygons(
-          data      = filter(bioregions_sf, reef_status == "Reefal"),
-          fillColor = "lightblue", color = "lightblue",
-          weight    = 1, opacity = 0.5, fillOpacity = 0.2,
-          group     = "Reefal", label = ~DESCRIP
-        )
-    }
-    if ("Non-Reefal" %in% input$zones) {
-      proxy <- proxy %>%
-        addPolygons(
-          data      = filter(bioregions_sf, reef_status == "Non-Reefal"),
-          fillColor = "lightgreen", color = "lightgreen",
-          weight    = 1, opacity = 0.5, fillOpacity = 0.2,
-          group     = "Non-Reefal", label = ~DESCRIP
-        )
-    }
-    if ("Management Zones" %in% input$zones) {
-      proxy <- proxy %>%
-        addPolygons(
-          data      = manage_sf,
-          fillColor = "orange", color = "orange",
-          weight    = 1, opacity = 0.6, fillOpacity = 0.15,
-          group     = "Management Zones", label = ~AREA_DESCR
-        )
-    }
-
-    # paint it all
-    proxy
-  })
-
-
-  # (5) SOI plot
-  output$soi_plot <- renderPlot({
-    ggplot(soi, aes(date, soi_anomaly)) +
-      geom_line(color = "#2c7fb8") +
-      labs(
-        x     = "Date",
-        y     = "SOI Anomaly",
-        title = "Southern Oscillation Index (SOI) Anomaly Over Time"
-      ) +
-      theme_minimal()
-  })
-
-  # (6) Monthly DHW plot
-  output$dhw_monthly_plot <- renderPlot({
-    monthly_dhw %>%
-      filter(year == input$year) %>%
-      ggplot(aes(month, mean_dhw, group = 1)) +
-        geom_line(color = "#d95f02") +
-        geom_point() +
-        labs(
-          x     = "Month",
-          y     = "Mean DHW",
-          title = paste("Monthly Mean DHW in", input$year)
-        ) +
-        theme_minimal()
-  })
-
-}
-```
-
-```{r}
-shinyApp(ui, server)
-```
-
-# new ver(v0.5) final one
+# new ver (v0.6) compare button work
 
 ```{r}
 yearly_temp_avg <- all_data %>%
@@ -640,21 +150,24 @@ ui <- dashboardPage(
       id = "tabs",
       menuItem("Introduction", tabName = "introduction", icon = icon("info-circle")),
       menuItem("Map",          tabName = "map",          icon = icon("globe")),
-      menuItem("ENSO and Temp",tabName = "enso_temp",    icon = icon("chart-line")),
-      menuItem("Relation",     tabName = "relation",     icon = icon("chart-bar"))
+      menuItem("ENSO and Temp",tabName = "enso_temp",     icon = icon("chart-line")),
+      menuItem("Relation",     tabName = "relation",      icon = icon("chart-bar"))
     )
   ),
   dashboardBody(
     tabItems(
-      # ─── Introduction ───────────────────────────────────────────────
+      # ─── Introduction ─────────────────────────────────────────────────
       tabItem(tabName = "introduction",
         h2("Introduction", align = "center"),
         includeMarkdown("D:/R_studio_working_dir/DATA3888_group/intro_test.md")
       ),
+
       # ─── Map ─────────────────────────────────────────────────────────
       tabItem(tabName = "map",
         fluidRow(
           column(width = 4,
+
+            # Year slider
             box(width = NULL, status = "primary", solidHeader = TRUE,
               sliderInput("year", "Select Year:",
                 min   = min(yearly_temp_avg$year),
@@ -663,42 +176,81 @@ ui <- dashboardPage(
                 step  = 1, sep = ""
               )
             ),
+
+            # Model select
             box(width = NULL, status = "primary", solidHeader = TRUE,
               selectInput("variable", "Model select:",
                 choices = c(
                   "Mean DHW"  = "mean_dhw",
                   "Mean SST"  = "mean_sst",
                   "Mean SSTA" = "mean_ssta"
-                ),
-                selected = "mean_dhw"
+                ), selected = "mean_dhw"
               )
             ),
+
+            # Zones
             box(width = NULL, status = "primary", solidHeader = TRUE,
               checkboxGroupInput("zones", "Zone:",
                 choices  = c("Reefal","Non-Reefal","Management Zones"),
                 selected = c("Reefal","Non-Reefal","Management Zones")
               )
+            ),
+
+            # Compare controls: slider + confirm
+            box(width = NULL, status = "info", solidHeader = TRUE,
+              div(style = "display:flex; align-items:center;",
+                sliderInput("compare_year", NULL,
+                  min   = min(yearly_temp_avg$year),
+                  max   = max(yearly_temp_avg$year),
+                  value = min(yearly_temp_avg$year),
+                  step  = 1, sep = "",
+                  width = "70%"
+                ),
+                actionButton("confirm_compare", "Confirm",
+                  style = "margin-left:10px;"
+                )
+              )
             )
           ),
+
           column(width = 8,
             box(width = NULL, status = "primary", solidHeader = TRUE,
               leafletOutput("map", height = "700px")
+            ),
+            # placeholder for the comparison map
+            uiOutput("compare_map")
+          )
+        )
+      ),
+
+      # ─── ENSO + Temp ──────────────────────────────────────────────────
+      tabItem(tabName = "enso_temp",
+        fluidRow(
+          box(title = "SOI Anomaly Over Time", width = 12,
+            plotlyOutput("soi_plot", height = "300px")
+          )
+        ),
+        fluidRow(
+          column(width = 3,
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              sliderInput("dhw_year", "Select Year for DHW Plot:",
+                min   = min(monthly_dhw$year),
+                max   = max(monthly_dhw$year),
+                value = min(monthly_dhw$year),
+                step  = 1, sep = ""
+              )
+            )
+          ),
+          column(width = 9,
+            box(title = "Monthly Mean DHW for Selected Year", width = NULL,
+              status = "primary", solidHeader = TRUE,
+              plotlyOutput("dhw_monthly_plot", height = "300px")
             )
           )
         )
       ),
-      # ─── ENSO & Temp ──────────────────────────────────────────────────
-      tabItem(tabName = "enso_temp",
-        fluidRow(
-          box(title = "SOI Anomaly Over Time", width = 12,
-              plotOutput("soi_plot", height = "300px"))
-        ),
-        fluidRow(
-          box(title = "Monthly Mean DHW for Selected Year", width = 12,
-              plotOutput("dhw_monthly_plot", height = "300px"))
-        )
-      ),
-      # ─── Relation ─────────────────────────────────────────────────────
+
+      # ─── Relation ────────────────────────────────────────────────────
       tabItem(tabName = "relation",
         h2("Relation Plot", align = "center"),
         p("Put your relation-analysis content or placeholder here.")
@@ -710,16 +262,29 @@ ui <- dashboardPage(
 
 ```{r}
 server <- function(input, output, session) {
-  
-  # Reproject the boundary layers on the fly to WGS84
+
+  # Reproject boundaries on the fly
   bio4326 <- st_transform(bioregions_sf, 4326)
   man4326 <- st_transform(manage_sf,       4326)
+
+  # Hold compare year
+  comp_year <- reactiveVal(NULL)
+  observeEvent(input$year,        comp_year(NULL),        ignoreInit = TRUE)
+  observeEvent(input$confirm_compare, {
+    # store the compare year
+    comp_year(input$compare_year)
   
-  # Render the full map (points + legend + polygons) whenever inputs change
+    # immediately pop up a modal to tell them the map is below
+    showModal(modalDialog(
+      h4("Compared map is displayed below"),
+      footer = modalButton("Confirm"),
+      easyClose = FALSE
+    ))
+  })
+
+  # Main map
   output$map <- renderLeaflet({
     req(input$year, input$variable, input$zones)
-    
-    # 1) subset & prepare popup/value
     df <- yearly_temp_avg %>%
       filter(year == input$year) %>%
       mutate(
@@ -729,428 +294,147 @@ server <- function(input, output, session) {
             mean_dhw  = "DHW: ",
             mean_sst  = "SST: ",
             mean_ssta = "SSTA: "
-          ),
-          round(val, 2)
+          ), round(val,2)
         )
       )
-    
-    # 2) palette
     pal <- colorNumeric(viridis(100), domain = df$val)
-    
-    # 3) base map + points + legend
+
     m <- leaflet(df) %>%
       addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = 147.6, lat = -18.3, zoom = 5) %>%
+      setView(147.6, -18.3, zoom = 5) %>%
       addCircleMarkers(
-        radius      = 3,
-        stroke      = FALSE,
-        fillOpacity = 0.7,
-        color       = ~pal(val),
-        popup       = ~popup
+        radius = 3, stroke = FALSE, fillOpacity = 0.7,
+        color = ~pal(val), popup = ~popup
       ) %>%
       addLegend(
-        position = "topright",
-        pal      = pal,
-        values   = df$val,
-        title    = switch(input$variable,
-                     mean_dhw  = "Mean DHW",
-                     mean_sst  = "Mean SST",
-                     mean_ssta = "Mean SSTA"
-                   ),
-        opacity  = 0.8
+        position = "topright", pal = pal, values = df$val,
+        title   = switch(input$variable,
+                    mean_dhw  = "Mean DHW",
+                    mean_sst  = "Mean SST",
+                    mean_ssta = "Mean SSTA"
+                  ), opacity = 0.8
       )
-    
-    # 4) add polygons (using the reprojected layers)
     if ("Reefal" %in% input$zones) {
       m <- m %>% addPolygons(
-        data      = filter(bio4326, reef_status == "Reefal"),
-        fillColor = "lightblue", color = "lightblue",
-        weight    = 1, opacity = 0.5, fillOpacity = 0.2
+        data = filter(bio4326, reef_status=="Reefal"),
+        fillColor="lightblue", color="lightblue",
+        weight=1, opacity=0.5, fillOpacity=0.2
       )
     }
     if ("Non-Reefal" %in% input$zones) {
       m <- m %>% addPolygons(
-        data      = filter(bio4326, reef_status == "Non-Reefal"),
-        fillColor = "lightgreen", color = "lightgreen",
-        weight    = 1, opacity = 0.5, fillOpacity = 0.2
+        data = filter(bio4326, reef_status=="Non-Reefal"),
+        fillColor="lightgreen", color="lightgreen",
+        weight=1, opacity=0.5, fillOpacity=0.2
       )
     }
     if ("Management Zones" %in% input$zones) {
       m <- m %>% addPolygons(
-        data      = man4326,
-        fillColor = "orange", color = "orange",
-        weight    = 1, opacity = 0.6, fillOpacity = 0.15
+        data=man4326,
+        fillColor="orange", color="orange",
+        weight=1, opacity=0.6, fillOpacity=0.15
       )
     }
-    
     m
   })
-  
-  # SOI anomaly plot (unchanged)
-  output$soi_plot <- renderPlot({
-    ggplot(soi, aes(x = date, y = soi_anomaly)) +
-      geom_line(color = "#2c7fb8") +
-      labs(x = "Date", y = "SOI Anomaly") +
-      theme_minimal()
-  })
-  
-  # Monthly DHW plot (unchanged)
-  output$dhw_monthly_plot <- renderPlot({
-    monthly_dhw %>%
-      filter(year == input$year) %>%
-      ggplot(aes(x = month, y = mean_dhw, group = 1)) +
-        geom_line(color = "#d95f02") +
-        geom_point() +
-        labs(
-          x     = "Month",
-          y     = "Mean DHW",
-          title = paste("Monthly Mean DHW in", input$year)
-        ) +
-      theme_minimal()
-  })
-}
-```
 
-
-```{r}
-shinyApp(ui, server)
-```
-
-
-# new ver (v0.4) do no use. compare button not work
-
-```{r ui, echo=FALSE}
-ui <- dashboardPage(
-  dashboardHeader(title = "GBR Heat Map"),
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Map",         tabName = "map",      icon = icon("globe")),
-      menuItem("ENSO and Temp", tabName = "enso_temp", icon = icon("chart-line"))
-    )
-  ),
-  dashboardBody(
-    tabItems(
-      
-      # ─── Map Tab ───────────────────────────────────────────────────────────
-      tabItem(tabName = "map",
-        fluidRow(
-          
-          # ── Controls Col ───────────────────────────────
-          column(width = 4,
-            
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              sliderInput("year", "Select Year:",
-                min   = min(yearly_temp_avg$year),
-                max   = max(yearly_temp_avg$year),
-                value = min(yearly_temp_avg$year),
-                step  = 1, sep = ""
-              )
-            ),
-            
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              selectInput("variable", "Model select:",
-                c("Mean DHW"  = "mean_dhw",
-                  "Mean SST"  = "mean_sst",
-                  "Mean SSTA" = "mean_ssta"
-                ),
-                selected = "mean_dhw"
-              )
-            ),
-            
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              checkboxGroupInput("zones", "Zone:",
-                c("Reefal", "Non-Reefal", "Management Zones"),
-                selected = c("Reefal","Non-Reefal","Management Zones")
-              )
-            ),
-            
-            # Compare controls in their own box
-            box(width = NULL, status = "info", solidHeader = TRUE, title = "Compare Map",
-              fluidRow(
-                column(8,
-                  sliderInput("compare_year", NULL,
-                    min   = min(yearly_temp_avg$year),
-                    max   = max(yearly_temp_avg$year),
-                    value = min(yearly_temp_avg$year),
-                    step  = 1, sep = "", width = "100%"
-                  )
-                ),
-                column(4, br(),
-                  actionButton("confirm", "Confirm", class="btn-success")
-                )
-              )
-            )
-            
-          ),
-          
-          # ── Maps Col ────────────────────────────────────
-          column(width = 8,
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              leafletOutput("map", height = "600px")
-            ),
-            # placeholder for the comparison map box
-            uiOutput("compare_ui")
-          )
-          
-        )
-      ),
-      
-      
-      # ─── ENSO & Temp Tab ───────────────────────────────────────────────────
-      tabItem(tabName = "enso_temp",
-        fluidRow(
-          box(title = "SOI Anomaly Over Time", width = 12,
-              plotOutput("soi_plot", height = "300px"))
-        ),
-        fluidRow(
-          box(title = "Monthly Mean DHW for Selected Year", width = 12,
-              plotOutput("dhw_monthly_plot", height = "300px"))
-        )
-      )
-      
-    )
-  )
-)
-
-```
-
-```{r}
-server <- function(input, output, session) {
-  
-  # 1) Hold the “compare” year
-  comp_year <- reactiveVal(NULL)
-  
-  # Reset comparison whenever main year changes
-  observeEvent(input$year, {
-    comp_year(NULL)
-  }, ignoreInit = TRUE)
-  
-  # When Confirm is clicked, store compare_year()
-  observeEvent(input$confirm, {
-    comp_year(input$compare_year)
-  })
-  
-  
-  # 2) Subset data and build main palette
-  filtered_data <- reactive({
-    req(input$year)
-    yearly_temp_avg %>% 
-      filter(year == input$year)
-  })
-  pal_main <- reactive({
-    colorNumeric(
-      palette = viridis::viridis(100),
-      domain  = filtered_data()[[ input$variable ]]
-    )
-  })
-  
-  
-  # 3) Render base main map
-  output$map <- renderLeaflet({
-    leaflet() %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = 147.6, lat = -18.3, zoom = 5)
-  })
-  
-  
-  # 4) Update main map on year/variable/zones change
-  observe({
-    df   <- filtered_data()
-    var  <- input$variable
-    vals <- df[[ var ]]
-    pal  <- pal_main()
-    pop  <- paste0(
-      switch(var,
-        mean_dhw  = "DHW: ",
-        mean_sst  = "SST: ",
-        mean_ssta = "SSTA: "
-      ),
-      round(vals, 2)
-    )
-    
-    proxy1 <- leafletProxy("map", data = df) %>%
-      clearMarkers() %>%
-      clearShapes() %>%
-      clearControls() %>%
-      addCircleMarkers(
-        radius      = 3,
-        stroke      = FALSE,
-        fillOpacity = 0.7,
-        fillColor   = pal(vals),
-        popup       = pop
-      ) %>%
-      addLegend(
-        position = "topright",
-        pal      = pal,
-        values   = vals,
-        title    = switch(var,
-                     mean_dhw  = "Mean DHW",
-                     mean_sst  = "Mean SST",
-                     mean_ssta = "Mean SSTA"
-                   ),
-        opacity  = 0.8
-      )
-    
-    # Reefal
-    if ("Reefal" %in% input$zones) {
-      proxy1 <- proxy1 %>%
-        addPolygons(
-          data      = filter(bioregions_sf, reef_status == "Reefal"),
-          fillColor = "lightblue", color = "lightblue",
-          weight    = 1, opacity = 0.5, fillOpacity = 0.2,
-          group     = "Reefal", label = ~DESCRIP
-        )
-    }
-    # Non-Reefal
-    if ("Non-Reefal" %in% input$zones) {
-      proxy1 <- proxy1 %>%
-        addPolygons(
-          data      = filter(bioregions_sf, reef_status == "Non-Reefal"),
-          fillColor = "lightgreen", color = "lightgreen",
-          weight    = 1, opacity = 0.5, fillOpacity = 0.2,
-          group     = "Non-Reefal", label = ~DESCRIP
-        )
-    }
-    # Management Zones
-    if ("Management Zones" %in% input$zones) {
-      proxy1 <- proxy1 %>%
-        addPolygons(
-          data      = manage_sf,
-          fillColor = "orange", color = "orange",
-          weight    = 1, opacity = 0.6, fillOpacity = 0.15,
-          group     = "Management Zones", label = ~AREA_DESCR
-        )
-    }
-    
-    proxy1 %>%
-      addLayersControl(
-        overlayGroups = c("Reefal", "Non-Reefal", "Management Zones"),
-        options       = layersControlOptions(collapsed = FALSE)
-      )
-  })
-  
-  
-  # 5) Comparison UI — only appears after Confirm
-  output$compare_ui <- renderUI({
+  # Comparison map UI
+  output$compare_map <- renderUI({
     req(comp_year())
-    box(
-      title       = paste("Comparison Map — Year:", comp_year()),
-      width       = NULL,
-      status      = "primary",
-      solidHeader = TRUE,
-      leafletOutput("map2", height = "600px")
-    )
+    box(title = paste("Comparison Map — Year:", comp_year()),
+        width = NULL, status = "primary", solidHeader = TRUE,
+        leafletOutput("map2", height = "700px"))
   })
-  
-  
-  # 6) Render base comparison map
+
+  # Comparison map
   output$map2 <- renderLeaflet({
-    req(comp_year())
-    leaflet() %>%
+    req(comp_year(), input$variable, input$zones)
+    df2 <- yearly_temp_avg %>%
+      filter(year == comp_year()) %>%
+      mutate(
+        val   = .data[[ input$variable ]],
+        popup = paste0(
+          switch(input$variable,
+            mean_dhw  = "DHW: ",
+            mean_sst  = "SST: ",
+            mean_ssta = "SSTA: "
+          ), round(val,2)
+        )
+      )
+    pal2 <- colorNumeric(viridis(100), domain = df2$val)
+
+    m2 <- leaflet(df2) %>%
       addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = 147.6, lat = -18.3, zoom = 5)
-  })
-  
-  
-  # 7) Update comparison map on comp_year/variable/zones change
-  observe({
-    req(comp_year())
-    
-    df2   <- yearly_temp_avg %>% filter(year == comp_year())
-    var   <- input$variable
-    vals2 <- df2[[ var ]]
-    pal2  <- colorNumeric(viridis::viridis(100), domain = vals2)
-    pop2  <- paste0(
-      switch(var,
-        mean_dhw  = "DHW: ",
-        mean_sst  = "SST: ",
-        mean_ssta = "SSTA: "
-      ),
-      round(vals2, 2)
-    )
-    
-    proxy2 <- leafletProxy("map2", data = df2) %>%
-      clearMarkers() %>%
-      clearShapes() %>%
-      clearControls() %>%
+      setView(147.6, -18.3, zoom = 5) %>%
       addCircleMarkers(
-        radius      = 3,
-        stroke      = FALSE,
-        fillOpacity = 0.7,
-        fillColor   = pal2(vals2),
-        popup       = pop2
+        radius = 3, stroke = FALSE, fillOpacity = 0.7,
+        color = ~pal2(val), popup = ~popup
       ) %>%
       addLegend(
-        position = "topright",
-        pal      = pal2,
-        values   = vals2,
-        title    = switch(var,
-                     mean_dhw  = "Mean DHW",
-                     mean_sst  = "Mean SST",
-                     mean_ssta = "Mean SSTA"
-                   ),
-        opacity  = 0.8
+        position = "topright", pal = pal2, values = df2$val,
+        title   = switch(input$variable,
+                    mean_dhw  = "Mean DHW",
+                    mean_sst  = "Mean SST",
+                    mean_ssta = "Mean SSTA"
+                  ), opacity = 0.8
       )
-    
     if ("Reefal" %in% input$zones) {
-      proxy2 <- proxy2 %>%
-        addPolygons(
-          data      = filter(bioregions_sf, reef_status == "Reefal"),
-          fillColor = "lightblue", color = "lightblue",
-          weight    = 1, opacity = 0.5, fillOpacity = 0.2
-        )
+      m2 <- m2 %>% addPolygons(
+        data=filter(bio4326, reef_status=="Reefal"),
+        fillColor="lightblue", color="lightblue",
+        weight=1, opacity=0.5, fillOpacity=0.2
+      )
     }
     if ("Non-Reefal" %in% input$zones) {
-      proxy2 <- proxy2 %>%
-        addPolygons(
-          data      = filter(bioregions_sf, reef_status == "Non-Reefal"),
-          fillColor = "lightgreen", color = "lightgreen",
-          weight    = 1, opacity = 0.5, fillOpacity = 0.2
-        )
+      m2 <- m2 %>% addPolygons(
+        data=filter(bio4326, reef_status=="Non-Reefal"),
+        fillColor="lightgreen", color="lightgreen",
+        weight=1, opacity=0.5, fillOpacity=0.2
+      )
     }
     if ("Management Zones" %in% input$zones) {
-      proxy2 <- proxy2 %>%
-        addPolygons(
-          data      = manage_sf,
-          fillColor = "orange", color = "orange",
-          weight    = 1, opacity = 0.6, fillOpacity = 0.15
-        )
-    }
-    
-    proxy2 %>%
-      addLayersControl(
-        overlayGroups = c("Reefal", "Non-Reefal", "Management Zones"),
-        options       = layersControlOptions(collapsed = FALSE)
+      m2 <- m2 %>% addPolygons(
+        data=man4326,
+        fillColor="orange", color="orange",
+        weight=1, opacity=0.6, fillOpacity=0.15
       )
+    }
+    m2
   })
+
+  # SOI anomaly
+  output$soi_plot <- renderPlotly({
+    req(input$dhw_year)
   
+    # compute the start/end of the selected year
+    start_date <- as.Date(paste0(input$dhw_year, "-01-01"))
+    end_date   <- as.Date(paste0(input$dhw_year, "-12-31"))
   
-  # 8) SOI anomaly plot
-  output$soi_plot <- renderPlot({
-    ggplot(soi, aes(x = date, y = soi_anomaly)) +
+    p1 <- ggplot(soi, aes(x = date, y = soi_anomaly)) +
       geom_line(color = "#2c7fb8") +
+      gghighlight(
+        date >= start_date & date <= end_date,
+        unhighlighted_params = list(color = "gray80")
+      ) +
+      theme_minimal() +
       labs(
         x     = "Date",
         y     = "SOI Anomaly",
-        title = "Southern Oscillation Index (SOI) Anomaly Over Time"
-      ) +
-      theme_minimal()
+        title = paste("SOI Anomaly —", input$dhw_year, "highlighted")
+      )
+  
+    ggplotly(p1)
   })
-  
-  
-  # 9) Monthly DHW plot
-  output$dhw_monthly_plot <- renderPlot({
-    monthly_dhw %>%
-      filter(year == input$year) %>%
-      ggplot(aes(x = month, y = mean_dhw, group = 1)) +
-        geom_line(color = "#d95f02") +
-        geom_point() +
-        labs(
-          x     = "Month",
-          y     = "Mean DHW",
-          title = paste("Monthly Mean DHW in", input$year)
-        ) +
-      theme_minimal()
+
+  # Monthly DHW
+  output$dhw_monthly_plot <- renderPlotly({
+    p2 <- monthly_dhw %>%
+      filter(year == input$dhw_year) %>%
+      ggplot(aes(month, mean_dhw, group=1)) +
+        geom_line(color="#d95f02") + geom_point() +
+        labs(title=paste("Monthly Mean DHW in", input$dhw_year)) +
+        theme_minimal()
+    ggplotly(p2)
   })
 }
 ```
