@@ -1,0 +1,144 @@
+---
+title: "Mixed effects model"
+author: "TingzhaoDai"
+date: "2025-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1.Data Reading & Preparation
+```{r}
+library(lme4)
+library(ggplot2)
+library(dplyr)
+set.seed(3926)
+
+reef <- read.csv("/Users/Daitingzhao/Downloads/NEW_fixed_reef_full.csv")
+
+reef$date <- as.Date(reef$date)
+reef$year <- format(reef$date, "%Y")
+reef$month <- format(reef$date, "%m")
+
+sum(is.na(reef))
+
+```
+
+2.Data Visualization
+```{r}
+ggplot(reef, aes(x = soi_anomaly, y = mean_dhw, color = shelf)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm") +
+  theme_minimal()
+
+ggplot(reef, aes(x = mean_sst, y = mean_dhw, color = shelf)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal()
+
+```
+
+3.Multicollinearity
+```{r}
+lm_check <- lm(mean_dhw ~ soi_anomaly + mean_sst + mean_ssta, data = reef)
+car::vif(lm_check)
+
+```
+
+4.Assumption Checks for Mixed Model
+5.Homoscedasticity
+6.Normality & Independence
+```{r}
+mixed_model <- lmer(mean_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
+                    (1 | shelf) + (1 | year) + (1 | month), data = reef)
+
+plot(mixed_model)
+qqnorm(resid(mixed_model)); qqline(resid(mixed_model)) 
+acf(resid(mixed_model))
+
+```
+
+7.Model Selection
+```{r}
+model1 <- lmer(mean_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
+               (1 | shelf) + (1 | year) + (1 | month), data = reef)
+model2 <- lmer(mean_dhw ~ soi_anomaly + mean_sst + (1 | shelf) + (1 | year), data = reef)
+model3 <- lmer(mean_dhw ~ soi_anomaly + (1 | shelf), data = reef)
+
+AIC(model1, model2, model3)
+BIC(model1, model2, model3)
+
+```
+
+8.Model performance: Training set and test set (80/20)
+```{r}
+library(caret)
+
+train_index <- createDataPartition(reef$mean_dhw, p = 0.8, list = FALSE)
+train_data <- reef[train_index, ]
+test_data <- reef[-train_index, ]
+
+final_mixed <- lmer(mean_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
+                    (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+
+pred <- predict(final_mixed, newdata = test_data, allow.new.levels = TRUE)
+rmse <- sqrt(mean((pred - test_data$mean_dhw)^2))
+mae <- mean(abs(pred - test_data$mean_dhw))
+r2 <- cor(pred, test_data$mean_dhw)^2
+
+c(RMSE = rmse, MAE = mae, R2 = r2)
+
+```
+
+9.Effect of Log Transformation
+```{r}
+train_data$log_dhw <- log1p(train_data$mean_dhw)
+log_model <- lmer(log_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
+                  (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+
+log_pred <- predict(log_model, newdata = test_data, allow.new.levels = TRUE)
+log_rmse <- sqrt(mean((expm1(log_pred) - test_data$mean_dhw)^2))
+log_mae <- mean(abs(expm1(log_pred) - test_data$mean_dhw))
+log_r2 <- cor(expm1(log_pred), test_data$mean_dhw)^2
+
+c(log_RMSE = log_rmse, log_MAE = log_mae, log_R2 = log_r2)
+
+```
+
+10.Final Model
+```{r}
+summary(final_mixed)
+
+```
+
+11.Assessing Model
+```{r}
+performance <- data.frame(
+  Model = c("Original Mixed Model", "Log Transformed"),
+  RMSE = c(rmse, log_rmse),
+  MAE = c(mae, log_mae),
+  R2 = c(r2, log_r2)
+)
+print(performance)
+
+```
+
+12. Creating A New CSV File
+```{r}
+reef_full <- read.csv("/Users/Daitingzhao/Downloads/NEW_fixed_reef_full.csv")
+reef_full$date <- as.Date(reef_full$date)
+reef_full$year <- format(reef_full$date, "%Y")
+reef_full$month <- format(reef_full$date, "%m")
+
+reef_full$pred_log_dhw <- predict(log_model, newdata = reef_full, allow.new.levels = TRUE)
+
+reef_full$pred_dhw <- expm1(reef_full$pred_log_dhw)
+
+```
+
+```{r}
+write.csv(reef_full, "/Users/Daitingzhao/Downloads/NEW_reef_full_with_preds.csv", row.names = FALSE)
+
+```
+
