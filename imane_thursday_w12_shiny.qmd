@@ -495,7 +495,8 @@ new_server <- function(input, output, session) {
       geom_hline(yintercept = 0, color = "black", linewidth = 0.2) +
       gghighlight(
         date >= start_date & date <= end_date,
-        unhighlighted_params = list(color = "gray80")
+        unhighlighted_params = list(color = "gray80"),
+        use_group_by = FALSE
         ) +
       theme_minimal() +
       labs(
