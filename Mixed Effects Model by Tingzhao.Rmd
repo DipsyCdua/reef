@@ -126,19 +126,43 @@ print(performance)
 
 12. Creating A New CSV File
 ```{r}
+library(lme4)
+
 reef_full <- read.csv("/Users/Daitingzhao/Downloads/NEW_fixed_reef_full.csv")
+
 reef_full$date <- as.Date(reef_full$date)
 reef_full$year <- format(reef_full$date, "%Y")
 reef_full$month <- format(reef_full$date, "%m")
 
-reef_full$pred_log_dhw <- predict(log_model, newdata = reef_full, allow.new.levels = TRUE)
+set.seed(3926)
+n <- nrow(reef_full)
+train_index <- sample(1:n, size = 0.8 * n)
+train_data <- reef_full[train_index, ]
+test_data <- reef_full[-train_index, ]
 
+#1. Mixed Effects Model for mean_dhw
+train_data$log_dhw <- log1p(train_data$mean_dhw)
+
+log_model_dhw <- lmer(log_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
+                      (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+
+reef_full$pred_log_dhw <- predict(log_model_dhw, newdata = reef_full, allow.new.levels = TRUE)
 reef_full$pred_dhw <- expm1(reef_full$pred_log_dhw)
 
-```
+#2. Mixed Effects Model for mean_sst
+sst_model <- lmer(mean_sst ~ soi_anomaly + mean_ssta + 
+                  (1 | shelf) + (1 | year) + (1 | month), data = train_data)
 
-```{r}
+reef_full$pred_sst <- predict(sst_model, newdata = reef_full, allow.new.levels = TRUE)
+
+#3. Mixed Effects Model for mean_ssta
+ssta_model <- lmer(mean_ssta ~ soi_anomaly + mean_sst + 
+                   (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+
+reef_full$pred_ssta <- predict(ssta_model, newdata = reef_full, allow.new.levels = TRUE)
+
 write.csv(reef_full, "/Users/Daitingzhao/Downloads/NEW_reef_full_with_preds.csv", row.names = FALSE)
 
 ```
+
 
