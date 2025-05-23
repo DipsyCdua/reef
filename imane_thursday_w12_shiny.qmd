@@ -16,11 +16,43 @@ library(tidyr)
 library(viridis)
 library(plotly)
 library(gghighlight)
+library(vroom)
 ```
 
 # Data Summaries & Preprocessing
 
 ## Data
+
+
+### faster data load ver
+
+```{r}
+all_data <- vroom(
+  file      = "./NEW_fixed_reef_full.csv",
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))  # parse date up front
+) %>%
+  mutate(
+    year  = year(date),
+    month = month(date, label = TRUE, abbr = TRUE)
+  )
+
+#----SOI INDEX----
+
+soi <- vroom(
+  file      = "./soi_index_py.csv",
+  delim     = ",",
+  col_types = cols(Date = col_date(format = ""))  # parse your “Date” column
+) %>%
+  rename(date = Date) %>%       # rename for consistency
+  mutate(year = year(date)) %>%
+  filter(year >= 1987, year <= 2024) %>%
+  arrange(date) %>%
+  select(date, soi_anomaly)
+```
+
+
+### old ver
 
 ```{r dat, message=FALSE, warning=FALSE}
 #----REEF DATA----
@@ -82,7 +114,7 @@ Although this was not a geospatial variable considered in our experimental resea
 ```{r bound, message=FALSE}
 #----BOUNDARIES----
 # 1. bioregions overlay data
-bioregions <- st_read("Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
+bioregions <- st_read("./Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074-20250518T100754Z-1-001/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
 # add reefal status & transform
 bioregions_sf <- bioregions |> 
   mutate(
@@ -99,7 +131,7 @@ ggplot(bioregions_sf) +
 # manage_sf <- st_read("D:/R_studio_working_dir/DATA3888_group/reef/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161-20250518T101033Z-1-001/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161/Great_Barrier_Reef_Marine_Park_Management_Areas.shp")
 
 # 3. shelf zones (will complete this before monday week 12, for now use management zones in the models)
-shelf_sf <- st_read("shelf_boundaries/shelf_zones_dissolved.shp")
+shelf_sf <- st_read("./shelf_boundaries-20250523T055421Z-1-001/shelf_boundaries/shelf_zones_dissolved.shp")
 st_crs(shelf_sf)
 
 # check
