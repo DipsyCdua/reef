@@ -1,0 +1,842 @@
+---
+title: "Reef03 - Shiny Application"
+author: "530318646, "
+date: today
+repository: https://github.com/DipsyCdua/reef.git
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    theme: sandstone
+    fig_caption: yes
+    table-of-contents: true
+    toc: true
+    toc_depth: 4
+    toc_float: true
+execute:
+  echo: true
+  tidy: true
+number-sections: false
+---
+```{r setup, echo=FALSE}
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(stringr)
+library(lubridate)
+library(readr)
+library(tidyr)
+library(viridis)
+library(plotly)
+library(gghighlight)
+library(vroom)
+library(reshape2)
+library(RColorBrewer)
+
+set.seed(3926)
+```
+
+# Data Summaries & Preprocessing
+
+## Data
+
+```{r vroom-data, message=FALSE}
+all_data <- vroom(
+  file      = "output_data/NEW_reef_full.csv",
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))  # parse date up front
+) %>%
+  mutate(
+    year  = year(date),
+    month = month(date, label = TRUE, abbr = TRUE)
+  )
+
+#----SOI INDEX----
+
+soi <- vroom(
+  file      = "output_data/soi_index_py.csv",
+  delim     = ",",
+  col_types = cols(Date = col_date(format = ""))  # parse your “Date” column
+) %>%
+  rename(date = Date) %>%       # rename for consistency
+  mutate(year = year(date)) %>%
+  filter(year >= 1987, year <= 2024) %>%
+  arrange(date) %>%
+  select(date, soi_anomaly)
+```
+
+
+
+
+## Summarise Temperature Variables
+
+Original data was daily temperature data including daily DHW, SST and SSTA for every point in the GBR. All temperature averages are calculated on this data.
+
+1. Yearly average for every point on GBR
+
+2. Monthly Average across the entire GBR
+
+```{r temp-summary, message=FALSE}
+# ALL TEMPERATURE VARIABLES yearly avg for every point on GBR
+yearly_temp_avg <- all_data |>
+  group_by(year, lon, lat) |>
+  summarise(
+    mean_dhw = mean(mean_dhw, na.rm = TRUE),
+    mean_sst = mean(mean_sst, na.rm = TRUE),
+    mean_ssta = mean(mean_ssta, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# ALL TEMPERATURE VARIABLES monthly avg across entire GBR
+monthly_temp <- all_data |>
+  group_by(shelf, year, month) |>
+  summarise(
+    mean_dhw = mean(mean_dhw, na.rm = TRUE), 
+    mean_sst = mean(mean_sst, na.rm = TRUE),
+    mean_ssta = mean(mean_ssta, na.rm = TRUE),
+    .groups = "drop")
+```
+
+## GBR Boundaries
+
+Continental Shelf (Inner, Mid, Outer) will be included as an optional overlay in the maps.
+
+```{r bound, message=FALSE, results='hide'}
+#----BOUNDARIES----
+
+# shelf zones (will complete this before monday week 12, for now use management zones in the models)
+shelf_sf <- st_read("output_data/shelf_boundaries/shelf_zones_dissolved.shp")
+st_crs(shelf_sf)
+
+# check
+any(!st_is_valid(shelf_sf)) # good!
+
+# rename shelf class
+shelf_sf <- dplyr::rename(shelf_sf, shelf_class = shlf_cl)
+
+# look at shelf
+ggplot(shelf_sf) +
+  geom_sf(aes(fill = shelf_class), colour = NA) +
+  coord_sf()
+
+# for the map, extract the lon and lat needed for it to be zoomed in at an optimal point
+
+unique_coords <- all_data |>
+    dplyr::select(lon, lat) |>
+    dplyr::distinct()
+
+unique_sf <- sf::st_as_sf(unique_coords, coords = c("lon", "lat"), crs = 4326)
+
+
+# get bounding box from your sf object
+bbox <- st_bbox(unique_sf)
+
+# extract coordinates
+unique_coords <- all_data |>
+  dplyr::select(lon, lat) |>
+  dplyr::distinct()
+
+unique_sf <- st_as_sf(unique_coords, coords = c("lon", "lat"), crs = 4326)
+```
+
+## Modelling Data - Predicting Temperature
+
+### GAM predictions
+
+```{r}
+gam_data <- vroom(
+  file      = "output_data/all_data_with_gam_predictions.csv",
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))  # parse date up front
+) |>
+  select(-month) |>
+  mutate(month = month(date, label = TRUE, abbr = TRUE))
+glimpse(gam_data)
+
+gam_yearly_temp_avg <- gam_data |>
+  group_by(year, lon, lat) |>
+  summarise(
+    mean_dhw = mean(mean_dhw, na.rm = TRUE),
+    mean_sst = mean(mean_sst, na.rm = TRUE),
+    mean_ssta = mean(mean_ssta, na.rm = TRUE),
+    pred_dhw = mean(pred_dhw, na.rm = TRUE),
+    pred_sst = mean(pred_sst, na.rm = TRUE),
+    pred_ssta = mean(pred_ssta, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+
+# New shiny app 
+
+without bioregions, new features
+
+```{r}
+new_ui <- dashboardPage(
+  dashboardHeader(title = "GBR Heat Map"),
+  dashboardSidebar(
+    sidebarMenu(
+      id = "tabs",
+      menuItem("Introduction", tabName = "introduction", icon = icon("info-circle")),
+      menuItem("Map",          tabName = "map",          icon = icon("globe")),
+      menuItem("ENSO and Temp",tabName = "enso_temp",     icon = icon("chart-line")),
+      menuItem("Predictions",     tabName = "prediction",      icon = icon("chart-bar"))
+    )
+  ),
+  dashboardBody(
+    tabItems(
+      # ─── Introduction ─────────────────────────────────────────────────
+      tabItem(tabName = "introduction",
+        h2("Introduction", align = "center"),
+        includeMarkdown("intro_test.md")
+      ),
+
+      # ─── Map ─────────────────────────────────────────────────────────
+      tabItem(tabName = "map",
+        fluidRow(
+          column(width = 4,
+
+            # Year slider
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              sliderInput("year", "Select Year:",
+                min   = min(yearly_temp_avg$year),
+                max   = max(yearly_temp_avg$year),
+                value = min(yearly_temp_avg$year),
+                step  = 1, sep = ""
+              )
+            ),
+
+            # Temeprature select
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              selectInput("variable", "Temperature Variable",
+                choices = c(
+                  "Mean DHW (°C weeks)"  = "mean_dhw",
+                  "Mean SST (°C)"  = "mean_sst",
+                  "Mean SSTA (°C)" = "mean_ssta"
+                ), selected = "mean_dhw"
+              )
+            ),
+
+            # Continental Shelf checkbox
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+                checkboxGroupInput("shelf_zones", "Continental Shelf:",
+                choices  = c("Inner", "Mid", "Outer"),
+                selected = c("Inner", "Mid", "Outer")
+                )
+              ),
+
+            # Compare 2 years controls: slider + confirm
+            box(width = NULL, status = "info", solidHeader = TRUE,
+              div(style = "display:flex; align-items:center;",
+                sliderInput("compare_year", NULL,
+                  min   = min(yearly_temp_avg$year),
+                  max   = max(yearly_temp_avg$year),
+                  value = min(yearly_temp_avg$year),
+                  step  = 1, sep = "",
+                  width = "100%" # changed so we can see all years
+                ),
+                actionButton("confirm_compare", "Compare",
+                  style = "margin-left:10px;"
+                )
+              )
+            )
+          ),
+
+          column(width = 8,
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              leafletOutput("map", height = "700px")
+            ),
+            # placeholder for the comparison map
+            uiOutput("compare_map")
+          )
+        )
+      ),
+
+      # ─── ENSO + Temp ──────────────────────────────────────────────────
+      tabItem(tabName = "enso_temp",
+        fluidRow(
+          box(title = "SOI Anomaly Over Time", width = 12,
+            plotlyOutput("soi_plot", height = "300px")
+          )
+        ),
+        fluidRow(
+          column(width = 4,
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+            # Select year
+            sliderInput("temp_year", "Select Year for Plots:",
+              min   = min(monthly_temp$year),
+              max   = max(monthly_temp$year),
+              value = min(monthly_temp$year),
+              step  = 1, sep = ""
+            ),
+            # Select temperature variable
+            selectInput("monthly_variable", "Temperature Variable:",
+              choices = c(
+                "Mean DHW (°C weeks)"  = "mean_dhw",
+                "Mean SST (°C)"  = "mean_sst",
+                "Mean SSTA (°C)" = "mean_ssta"
+              ), selected = "mean_dhw"
+            ),
+            # Select shelf
+            checkboxGroupInput(
+              inputId = "shelf_selection",
+              label = "Select shelf(s) to display:",
+              choices = c("Inner" = "I", "Mid" = "M", "Outer" = "O"),
+              selected = c("I", "M", "O")
+            )
+          )
+        ),
+          column(width = 8,
+            box(title = "Monthly Mean Temperature for Selected Year", width = NULL,
+              status = "primary", solidHeader = TRUE,
+              plotlyOutput("temp_monthly_plot", height = "300px")
+            )
+          )
+        )
+      ),
+
+      # ─── Predictions ────────────────────────────────────────────────────
+      tabItem(tabName = "prediction",
+        fluidRow(
+          column(12,
+            h3("Correlation Heatmap"),
+            plotlyOutput("correlation_heatmap")
+          )
+        ),
+        fluidRow(
+          column(width = 4,
+
+            # Year slider
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              sliderInput("year", "Select Year:",
+                min   = min(gam_yearly_temp_avg$year),
+                max   = max(gam_yearly_temp_avg$year),
+                value = min(gam_yearly_temp_avg$year),
+                step  = 1, sep = ""
+              )
+            ),
+
+            # Temeprature select
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              selectInput("variable", "Temperature Variable",
+                choices = c(
+                  "Mean DHW (°C weeks)"  = "mean_dhw",
+                  "Mean SST (°C)"  = "mean_sst",
+                  "Mean SSTA (°C)" = "mean_ssta"
+                ), selected = "mean_dhw"
+              )
+            ),
+
+            # Continental Shelf checkbox
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+                checkboxGroupInput("shelf_zones", "Continental Shelf:",
+                choices  = c("Inner", "Mid", "Outer"),
+                selected = c("Inner", "Mid", "Outer")
+                )
+              ),
+
+            # Compare 2 years controls: slider + confirm
+            box(width = NULL, status = "info", solidHeader = TRUE,
+              div(style = "display:flex; align-items:center;",
+                sliderInput("compare_year", NULL,
+                  min   = min(gam_yearly_temp_avg$year),
+                  max   = max(gam_yearly_temp_avg$year),
+                  value = min(gam_yearly_temp_avg$year),
+                  step  = 1, sep = "",
+                  width = "100%" # changed so we can see all years
+                ),
+                actionButton("confirm_compare", "Compare",
+                  style = "margin-left:10px;"
+                )
+              )
+            )
+          ),
+
+          column(width = 8,
+            box(width = NULL, status = "primary", solidHeader = TRUE,
+              leafletOutput("predicted_map", height = "700px")
+            ),
+            # placeholder for the comparison map
+            uiOutput("actual_map")
+          )
+        )
+      )
+    )
+  )
+)
+```
+
+```{r}
+new_server <- function(input, output, session) {
+# ─── Map ─────────────────────────────────────────────────────────
+  # Shelf boundaries crs
+  shelf4326 <- st_transform(shelf_sf, 4326)
+
+  # Hold compare year
+  comp_year <- reactiveVal(NULL)
+  observeEvent(input$year,        comp_year(NULL),        ignoreInit = TRUE)
+  observeEvent(input$confirm_compare, {
+    # store the compare year
+    comp_year(input$compare_year)
+  
+    # immediately pop up a modal to tell them the map is below
+    showModal(modalDialog(
+      h4("Compared map is displayed below"),
+      footer = modalButton("Confirm"),
+      easyClose = FALSE
+    ))
+  })
+  
+  
+  # Main map
+  output$map <- renderLeaflet({
+    req(input$year, input$variable)
+    
+    # Mean Monthly Temperature
+    df1 <- yearly_temp_avg %>%
+      filter(year == input$year) %>%
+      mutate(
+        val = .data[[input$variable]],
+        popup = paste0(
+          switch(input$variable,
+            mean_dhw = "DHW (°C weeks): ",
+            mean_sst = "SST (°C): ",
+            mean_ssta = "SSTA (°C): "
+          ), round(val, 2)
+        )
+      )
+    pal <- colorNumeric(viridis(100), domain = df1$val)
+
+    m1 <- leaflet(df1) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addCircleMarkers(
+        radius = 3, stroke = FALSE, fillOpacity = 0.7,
+        color = ~pal(val), popup = ~popup
+      ) %>%
+      addLegend(
+        position = "topright", pal = pal, values = df1$val,
+        title = switch(input$variable,
+          mean_dhw = "Mean DHW (°C weeks)",
+          mean_sst = "Mean SST (°C)",
+          mean_ssta = "Mean SSTA (°C)"
+        ), opacity = 0.8
+      )
+  
+    # Add shelf overlays
+    if ("Inner" %in% input$shelf_zones) {
+      m1 <- m1 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Inner"),
+        fillColor = "orange", color = "orange",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Mid" %in% input$shelf_zones) {
+      m1 <- m1 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Mid"),
+        fillColor = "lightgreen", color = "lightgreen",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Outer" %in% input$shelf_zones) {
+      m1 <- m1 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Outer"),
+        fillColor = "lightblue", color = "lightblue",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    
+    # Add shelf legend
+    m1 %>% addLegend(
+      position = "bottomright",
+      colors = c("orange", "lightgreen", "lightblue"),
+      labels = c("Inner Shelf", "Mid Shelf", "Outer Shelf"),
+      title = "Shelf Zone",
+      opacity = 0.5
+    )
+    })
+
+
+  # Comparison map UI
+  output$compare_map <- renderUI({
+    req(comp_year())
+    box(title = paste("Comparison Map — Year:", comp_year()),
+        width = NULL, status = "primary", solidHeader = TRUE,
+        leafletOutput("map2", height = "700px"))
+  })
+
+  # Comparison map
+  output$map2 <- renderLeaflet({
+    req(comp_year(), input$variable)
+    
+    # Mean Monthly Temperature
+    df2 <- yearly_temp_avg %>%
+      filter(year == comp_year()) %>%
+      mutate(
+        val   = .data[[ input$variable ]],
+        popup = paste0(
+          switch(input$variable,
+            mean_dhw  = "DHW: ",
+            mean_sst  = "SST: ",
+            mean_ssta = "SSTA: "
+          ), round(val,2)
+        )
+      )
+    
+    pal2 <- colorNumeric(viridis(100), domain = df2$val)
+
+    m2 <- leaflet(df2) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addCircleMarkers(
+        radius = 3, stroke = FALSE, fillOpacity = 0.7,
+        color = ~pal2(val), popup = ~popup
+      ) %>%
+      addLegend(
+        position = "topright", pal = pal2, values = df2$val,
+        title   = switch(input$variable,
+                    mean_dhw  = "Mean DHW (°C weeks)",
+                    mean_sst  = "Mean SST (°C)",
+                    mean_ssta = "Mean SSTA (°C)"
+                  ), opacity = 0.8
+      )
+  
+    # Add shelf overlays
+    if ("Inner" %in% input$shelf_zones) {
+      m2 <- m2 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Inner"),
+        fillColor = "orange", color = "orange",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Mid" %in% input$shelf_zones) {
+      m2 <- m2 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Mid"),
+        fillColor = "lightgreen", color = "lightgreen",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Outer" %in% input$shelf_zones) {
+      m2 <- m2 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Outer"),
+        fillColor = "lightblue", color = "lightblue",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    
+    # Add shelf legend
+    m2 %>% addLegend(
+      position = "bottomright",
+      colors = c("orange", "lightgreen", "lightblue"),
+      labels = c("Inner Shelf", "Mid Shelf", "Outer Shelf"),
+      title = "Shelf Zone",
+      opacity = 0.5
+    )
+  })
+# ─── ENSO + Temp ─────────────────────────────────────────────────────────
+  # SOI anomaly plot
+  output$soi_plot <- renderPlotly({
+    req(input$temp_year)
+
+    # Compute the start/end of the selected year
+    start_date <- as.Date(paste0(input$temp_year, "-01-01"))
+    end_date   <- as.Date(paste0(input$temp_year, "-12-31"))
+    
+    # Divide soi data strictly by if it is >0 or <0, then colourcode
+    soi_strict <- soi %>%
+      mutate(date_end = lead(date),
+             soi_end = lead(soi_anomaly),
+             colour = ifelse(soi_anomaly > 0, "red", "blue")) %>%
+      filter(!is.na(date_end))
+    
+    soi_strict <- soi %>%
+      mutate(date_end = lead(date),
+             soi_end = lead(soi_anomaly),
+             phase = ifelse(soi_anomaly > 0, "El Niño", "La Niña")) %>%
+      filter(!is.na(date_end))
+
+    p1 <- ggplot(soi_strict, 
+                 aes(x = date, 
+                     y = soi_anomaly, 
+                     xend = date_end, 
+                     yend = soi_end)) +
+      geom_segment(aes(color = phase), linewidth = 0.6) +
+      
+      scale_color_manual(values = c("El Niño" = "red", "La Niña" = "blue"),
+                         name = "ENSO Phase") +
+      geom_hline(yintercept = 0, color = "black", linewidth = 0.2) +
+      geom_hline(yintercept = 0, color = "black", linewidth = 0.2) +
+      gghighlight(
+        date >= start_date & date <= end_date,
+        unhighlighted_params = list(color = "gray80"),
+        use_group_by = FALSE
+        ) +
+      theme_minimal() +
+      labs(
+        x     = "Date",
+        y     = "SOI Anomaly",
+        title = paste("SOI Anomaly —", input$temp_year, "highlighted")
+      )
+
+    ggplotly(p1)
+  })
+
+  # Average Monthly temperature across the GBR
+  output$temp_monthly_plot <- renderPlotly({
+    req(input$temp_year, input$monthly_variable, input$shelf_selection)
+  
+    # Dynamic label
+    y_label <- c(
+      mean_dhw  = "Degree Heating Weeks (°C weeks)",
+      mean_sst  = "Sea Surface Temperature (°C )",
+      mean_ssta = "Sea Surface Temperature Anomaly (°C)"
+    )[[input$monthly_variable]]
+  
+    # Filter data by year and selected shelves
+    plot_data <- monthly_temp %>%
+      filter(
+        year == input$temp_year,
+        shelf %in% input$shelf_selection
+      )
+  
+    # Base plot
+    p2 <- ggplot(plot_data, aes(
+      x = month,
+      y = .data[[input$monthly_variable]],
+      linetype = shelf,
+      group = shelf
+    )) +
+      geom_line(colour = "#2c7fb8", linewidth = 0.8) +
+      geom_point(colour = "#2c7fb8") +
+      geom_hline(yintercept = 0, color = "black", linewidth = 0.1) +
+      labs(
+        x = "Month",
+        y = y_label,
+        linetype = "Shelf",
+        title = paste("Monthly", toupper(input$monthly_variable), 
+                      "in", input$temp_year, "by Shelf")
+      ) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+    # Add DHW thresholds if needed
+    if (input$monthly_variable == "mean_dhw") {
+      dhw_thresholds <- data.frame(
+        yintercept = c(4, 8),
+        label = c(
+          "coral bleaching",
+          "widespread bleaching + heat-sensitive coral mortality"
+        ),
+        color = c("yellow", "orange")
+      )
+  
+      p2 <- p2 +
+        geom_hline(data = dhw_thresholds,
+                   aes(yintercept = yintercept, color = label),
+                   linewidth = 0.4,
+                   show.legend = TRUE) +
+        scale_color_manual(name = "DHW Risks",
+                           values = setNames(dhw_thresholds$color, 
+                                             dhw_thresholds$label))
+    }
+  
+    ggplotly(p2) %>%
+      layout(yaxis = list(title = y_label))
+    })
+
+# ─── Predictions ─────────────────────────────────────────────────────────
+  # Correlation heatmap
+  output$correlation_heatmap <- renderPlotly({
+    
+    # Select all numerical variables (and make month numerical)
+    cor_data <- all_data |>
+      select(-month) |>
+      mutate(
+        month = lubridate::month(date)) |>
+      select(mean_dhw, mean_sst, mean_ssta, soi_anomaly, month, year) |>
+      na.omit()
+    
+    # Correlation matrix
+    cor_mat <- cor(cor_data)
+    melted_cor_matrix <- melt(cor_mat)
+    melted_cor_matrix <- melted_cor_matrix[
+      melted_cor_matrix$Var1 != melted_cor_matrix$Var2, 
+      ]
+    melted_cor_matrix <- melted_cor_matrix[
+      as.numeric(melted_cor_matrix$Var1) < as.numeric(
+        melted_cor_matrix$Var2), ]
+    
+    # Create heatmap
+    corr_mat <- ggplot(melted_cor_matrix, aes(Var1, Var2, fill = value)) +
+      geom_tile(color = "white") +
+      scale_fill_gradientn(colors = brewer.pal(n = 11, name = "RdYlBu"), 
+                           limits = c(-1, 1)) +  
+      theme_minimal() + 
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+      coord_fixed() +
+      labs(x = "", y = "")
+    
+    ggplotly(corr_mat)
+  })
+  
+  # Predicted Temperature Map
+  output$actual_map <- renderLeaflet({
+    req(input$year, input$variable)
+    
+    # Predicted Mean Monthly Temperature
+    df3 <- gam_yearly_temp_avg %>%
+      filter(year == input$year) %>%
+      mutate(
+        val = .data[[input$variable]],
+        popup = paste0(
+          switch(input$variable,
+            pred_dhw = "Predicted DHW (°C weeks): ",
+            pred_sst = "Predicted SST (°C): ",
+            pred_ssta = "Predicted SSTA (°C): "
+          ), round(val, 2)
+        )
+      )
+    pal3 <- colorNumeric(viridis(100), domain = df3$val)
+
+    m3 <- leaflet(df3) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addCircleMarkers(
+        radius = 3, stroke = FALSE, fillOpacity = 0.7,
+        color = ~pal(val), popup = ~popup
+      ) %>%
+      addLegend(
+        position = "topright", pal = pal3, values = df3$val,
+        title = switch(input$variable,
+          mean_dhw = "Mean DHW (°C weeks)",
+          mean_sst = "Mean SST (°C)",
+          mean_ssta = "Mean SSTA (°C)"
+        ), opacity = 0.8
+      )
+  
+    # Add shelf overlays
+    if ("Inner" %in% input$shelf_zones) {
+      m3 <- m3 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Inner"),
+        fillColor = "orange", color = "orange",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Mid" %in% input$shelf_zones) {
+      m3 <- m3%>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Mid"),
+        fillColor = "lightgreen", color = "lightgreen",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Outer" %in% input$shelf_zones) {
+      m3 <- m3 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Outer"),
+        fillColor = "lightblue", color = "lightblue",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    
+    # Add shelf legend
+    m3 %>% addLegend(
+      position = "bottomright",
+      colors = c("orange", "lightgreen", "lightblue"),
+      labels = c("Inner Shelf", "Mid Shelf", "Outer Shelf"),
+      title = "Shelf Zone",
+      opacity = 0.5
+    )
+    })
+
+
+  # Actual Temperature map UI
+  output$actual_map <- renderUI({
+    req(comp_year())
+    box(title = paste("Actual Temperature Map — Year:", comp_year()),
+        width = NULL, status = "primary", solidHeader = TRUE,
+        leafletOutput("map2", height = "700px"))
+  })
+
+  # Actual map
+  output$actual_map <- renderLeaflet({
+    req(comp_year(), input$variable)
+    
+    # Mean Monthly Temperature
+    df4 <- gam_yearly_temp_avg %>%
+      filter(year == comp_year()) %>%
+      mutate(
+        val   = .data[[ input$variable ]],
+        popup = paste0(
+          switch(input$variable,
+            mean_dhw  = "Actual DHW: ",
+            mean_sst  = "Actual SST: ",
+            mean_ssta = "Actual SSTA: "
+          ), round(val,2)
+        )
+      )
+    
+    pal4 <- colorNumeric(viridis(100), domain = df4$val)
+
+    m4 <- leaflet(df4) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addCircleMarkers(
+        radius = 3, stroke = FALSE, fillOpacity = 0.7,
+        color = ~pal2(val), popup = ~popup
+      ) %>%
+      addLegend(
+        position = "topright", pal = pal4, values = df4$val,
+        title   = switch(input$variable,
+                    mean_dhw  = "Mean DHW (°C weeks)",
+                    mean_sst  = "Mean SST (°C)",
+                    mean_ssta = "Mean SSTA (°C)"
+                  ), opacity = 0.8
+      )
+  
+    # Add shelf overlays
+    if ("Inner" %in% input$shelf_zones) {
+      m4 <- m4 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Inner"),
+        fillColor = "orange", color = "orange",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Mid" %in% input$shelf_zones) {
+      m4 <- m4 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Mid"),
+        fillColor = "lightgreen", color = "lightgreen",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    if ("Outer" %in% input$shelf_zones) {
+      m4 <- m4 %>% addPolygons(
+        data = filter(shelf4326, shelf_class == "Outer"),
+        fillColor = "lightblue", color = "lightblue",
+        weight = 1, opacity = 0.5, fillOpacity = 0.2
+      )
+    }
+    
+    # Add shelf legend
+    m4 %>% addLegend(
+      position = "bottomright",
+      colors = c("orange", "lightgreen", "lightblue"),
+      labels = c("Inner Shelf", "Mid Shelf", "Outer Shelf"),
+      title = "Shelf Zone",
+      opacity = 0.5
+    )
+  })
+
+
+}
+```
+
+
+```{r}
+shinyApp(new_ui, new_server)
+
+
+```
+
+
+
+
