@@ -16,16 +16,43 @@ library(tidyr)
 library(viridis)
 library(plotly)
 library(gghighlight)
+library(vroom)
 ```
 
 # Data Summaries & Preprocessing
 
 ## Data
 
+### new read method vroom
+
+```{r}
+all_data_csv <- vroom(
+  file   = "./NEW_fixed_reef_full.csv",
+  delim  = ",",
+  col_types = cols(
+    date = col_date(format = "")
+  )
+)
+
+# add year and month columns
+all_data <- all_data_csv %>%
+  mutate(
+    date  = as.Date(date),
+    year  = year(date),
+    month = month(date, label = TRUE, abbr = TRUE)
+  )
+```
+```{r}
+tail(all_data)
+```
+
+
+## old methoed read.csv
+
 ```{r dat, message=FALSE, warning=FALSE}
 #----REEF DATA----
 
-all_data_csv <- read.csv("/Users/imanelattab/Desktop/DATA3888/reef_dbs/NEW_reef_full.csv")
+all_data_csv <- read.csv("D:/R_studio_working_dir/DATA3888_group/reef/NEW_fixed_reef_full.csv")
 
 # add year and month columns
 all_data <- all_data_csv |>
@@ -50,7 +77,7 @@ yearly_temp_avg <- all_data |>
     mean_sst = mean(mean_sst, na.rm = TRUE),
     mean_ssta = mean(mean_ssta, na.rm = TRUE),
     .groups = "drop"
-  ) |>
+  )
 
 # ALL TEMPERATURE VARIABLES monthly avg across entire GBR
 monthly_temp <- all_data |>
@@ -73,7 +100,7 @@ Although this was not a geospatial variable considered in our experimental resea
 ```{r bound, message=FALSE}
 #----BOUNDARIES----
 # 1. bioregions overlay data
-bioregions_sf <- st_read("/Users/imanelattab/Desktop/DATA3888/reef_dbs/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074-20250518T100754Z-1-001/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
+bioregions_sf <- st_read("./Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074-20250518T100754Z-1-001/Great_Barrier_Reef_Marine_Park_Marine_Bioregions_20_-7203602978318279074/Great_Barrier_Reef_Marine_Park_Marine_Bioregions.shp")
 # add reefal status
 bioregions_sf <- bioregions_sf |> 
   mutate(
@@ -85,7 +112,7 @@ bioregions_sf <- bioregions_sf |>
 # manage_sf <- st_read("D:/R_studio_working_dir/DATA3888_group/reef/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161-20250518T101033Z-1-001/Great_Barrier_Reef_Marine_Park_Management_Areas_20_8405662027104915161/Great_Barrier_Reef_Marine_Park_Management_Areas.shp")
 
 # 3. shelf zones (will complete this before monday week 12, for now use management zones in the models)
-shelf_sf <- st_read("/Users/imanelattab/Desktop/DATA3888/reef_dbs/shelf_zones.geojson") |>
+shelf_sf <- st_read("./shelf_boundaries-20250523T055421Z-1-001/shelf_boundaries/shelf_zones_dissolved.shp") |>
   st_transform(4326)
 
 ```

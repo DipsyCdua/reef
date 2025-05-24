@@ -366,7 +366,7 @@ new_server <- function(input, output, session) {
       m1 <- m1 %>% addPolygons(
         data = filter(shelf4326, shelf_class == "Inner"),
         fillColor = "orange", color = "orange",
-        weight = 1, opacity = 0.5, fillOpacity = 0.2
+        weight = 1, opacity = 0.5, fillOpacity = 1
       )
     }
     if ("Mid" %in% input$shelf_zones) {
