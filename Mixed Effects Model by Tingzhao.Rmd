@@ -24,6 +24,7 @@ reef$month <- format(reef$date, "%m")
 
 sum(is.na(reef))
 
+
 ```
 
 2.Data Visualization
@@ -57,17 +58,18 @@ plot(mixed_model)
 qqnorm(resid(mixed_model)); qqline(resid(mixed_model)) 
 acf(resid(mixed_model))
 
+
 ```
 
 7.Model Selection
 ```{r}
-model1 <- lmer(mean_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
-               (1 | shelf) + (1 | year) + (1 | month), data = reef)
-model2 <- lmer(mean_dhw ~ soi_anomaly + mean_sst + (1 | shelf) + (1 | year), data = reef)
+model1 <- lmer(mean_dhw ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = reef)
+model2 <- lmer(mean_dhw ~ soi_anomaly + (1 | shelf) + (1 | year), data = reef)
 model3 <- lmer(mean_dhw ~ soi_anomaly + (1 | shelf), data = reef)
 
 AIC(model1, model2, model3)
 BIC(model1, model2, model3)
+
 
 ```
 
@@ -79,8 +81,7 @@ train_index <- createDataPartition(reef$mean_dhw, p = 0.8, list = FALSE)
 train_data <- reef[train_index, ]
 test_data <- reef[-train_index, ]
 
-final_mixed <- lmer(mean_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
-                    (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+final_mixed <- lmer(mean_dhw ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
 
 pred <- predict(final_mixed, newdata = test_data, allow.new.levels = TRUE)
 rmse <- sqrt(mean((pred - test_data$mean_dhw)^2))
@@ -89,13 +90,13 @@ r2 <- cor(pred, test_data$mean_dhw)^2
 
 c(RMSE = rmse, MAE = mae, R2 = r2)
 
+
 ```
 
 9.Effect of Log Transformation
 ```{r}
 train_data$log_dhw <- log1p(train_data$mean_dhw)
-log_model <- lmer(log_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
-                  (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+log_model <- lmer(log_dhw ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
 
 log_pred <- predict(log_model, newdata = test_data, allow.new.levels = TRUE)
 log_rmse <- sqrt(mean((expm1(log_pred) - test_data$mean_dhw)^2))
@@ -104,11 +105,13 @@ log_r2 <- cor(expm1(log_pred), test_data$mean_dhw)^2
 
 c(log_RMSE = log_rmse, log_MAE = log_mae, log_R2 = log_r2)
 
+
 ```
 
 10.Final Model
 ```{r}
 summary(final_mixed)
+
 
 ```
 
@@ -126,8 +129,6 @@ print(performance)
 
 12. Creating A New CSV File
 ```{r}
-library(lme4)
-
 reef_full <- read.csv("/Users/Daitingzhao/Downloads/NEW_fixed_reef_full.csv")
 
 reef_full$date <- as.Date(reef_full$date)
@@ -140,27 +141,21 @@ train_index <- sample(1:n, size = 0.8 * n)
 train_data <- reef_full[train_index, ]
 test_data <- reef_full[-train_index, ]
 
-#1. Mixed Effects Model for mean_dhw
+# 1. Mixed Effects Model for mean_dhw (log-transformed)
 train_data$log_dhw <- log1p(train_data$mean_dhw)
-
-log_model_dhw <- lmer(log_dhw ~ soi_anomaly + mean_sst + mean_ssta + 
-                      (1 | shelf) + (1 | year) + (1 | month), data = train_data)
-
+log_model_dhw <- lmer(log_dhw ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
 reef_full$pred_log_dhw <- predict(log_model_dhw, newdata = reef_full, allow.new.levels = TRUE)
 reef_full$pred_dhw <- expm1(reef_full$pred_log_dhw)
 
-#2. Mixed Effects Model for mean_sst
-sst_model <- lmer(mean_sst ~ soi_anomaly + mean_ssta + 
-                  (1 | shelf) + (1 | year) + (1 | month), data = train_data)
-
+# 2. Mixed Effects Model for mean_sst (no temperature cross-prediction)
+sst_model <- lmer(mean_sst ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
 reef_full$pred_sst <- predict(sst_model, newdata = reef_full, allow.new.levels = TRUE)
 
-#3. Mixed Effects Model for mean_ssta
-ssta_model <- lmer(mean_ssta ~ soi_anomaly + mean_sst + 
-                   (1 | shelf) + (1 | year) + (1 | month), data = train_data)
-
+# 3. Mixed Effects Model for mean_ssta (also exclude SST from predictors)
+ssta_model <- lmer(mean_ssta ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
 reef_full$pred_ssta <- predict(ssta_model, newdata = reef_full, allow.new.levels = TRUE)
 
+# Save to CSV
 write.csv(reef_full, "/Users/Daitingzhao/Downloads/NEW_reef_full_with_preds.csv", row.names = FALSE)
 
 ```
