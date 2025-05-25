@@ -199,6 +199,23 @@ new_ui <- dashboardPage(
       # ─── Map ─────────────────────────────────────────────────────────
       tabItem(tabName = "map",
         fluidRow(
+          column(width = 12,
+            box(
+              width = NULL, status = "info", solidHeader = TRUE,
+              HTML("
+                <h4 style='margin-bottom:0.5em;'>What you’re looking at</h4>
+                <p>
+                  This interactive map shows the average Degree Heating Weeks (DHW), Sea Surface
+                  Temperature (SST) or Sea Surface Temperature Anomaly (SSTA) for points across
+                  the Great Barrier Reef in the selected year.  Use the controls on the left to
+                  pick a year, variable, and shelf zone—then explore spatial patterns and
+                  compare two years side by side.
+                </p>
+              ")
+            )
+          )
+        ),
+        fluidRow(
           column(width = 4,
 
             # Year slider
@@ -208,22 +225,17 @@ new_ui <- dashboardPage(
                 max   = max(yearly_temp_avg$year),
                 value = min(yearly_temp_avg$year),
                 step  = 1, sep = ""
-              )
-            ),
-
+              ),
             # Temperature select
-            box(width = NULL, status = "primary", solidHeader = TRUE,
               selectInput("variable", "Temperature Variable",
                 choices = c(
                   "Mean DHW (°C weeks)"  = "mean_dhw",
                   "Mean SST (°C)"        = "mean_sst",
                   "Mean SSTA (°C)"       = "mean_ssta"
                 ), selected = "mean_dhw"
-              )
-            ),
+              ),
 
             # Continental Shelf checkbox (map-specific)
-            box(width = NULL, status = "primary", solidHeader = TRUE,
               checkboxGroupInput("shelf_map", "Continental Shelf:",
                 choices  = c("Inner", "Mid", "Outer"),
                 selected = c("Inner", "Mid", "Outer")
@@ -246,11 +258,8 @@ new_ui <- dashboardPage(
               )
             )
           ),
-
           column(width = 8,
-            box(width = NULL, status = "primary", solidHeader = TRUE,
-              leafletOutput("map", height = "700px")
-            ),
+            uiOutput("map_ui"),
             uiOutput("compare_map")
           )
         )
@@ -259,8 +268,42 @@ new_ui <- dashboardPage(
       # ─── ENSO + Temp ──────────────────────────────────────────────────
       tabItem(tabName = "enso_temp",
         fluidRow(
+          column(width = 12,
+            box(
+              width = NULL, status = "info", solidHeader = TRUE,
+              HTML("
+                <h4 style='margin-bottom:0.5em;'>What you’re looking at</h4>
+                <p>
+                  This interactive map shows the average Degree Heating Weeks (DHW), Sea Surface
+                  Temperature (SST) or Sea Surface Temperature Anomaly (SSTA) for points across
+                  the Great Barrier Reef in the selected year.  Use the controls on the left to
+                  pick a year, variable, and shelf zone—then explore spatial patterns and
+                  compare two years side by side.
+                </p>
+              ")
+            )
+          )
+        ),
+        fluidRow(
           box(title = "SOI Anomaly Over Time", width = 12,
             plotlyOutput("soi_plot", height = "300px")
+          )
+        ),
+        fluidRow(
+          column(width = 12,
+            box(
+              width = NULL, status = "info", solidHeader = TRUE,
+              HTML("
+                <h4 style='margin-bottom:0.5em;'>What you’re looking at</h4>
+                <p>
+                  This interactive map shows the average Degree Heating Weeks (DHW), Sea Surface
+                  Temperature (SST) or Sea Surface Temperature Anomaly (SSTA) for points across
+                  the Great Barrier Reef in the selected year.  Use the controls on the left to
+                  pick a year, variable, and shelf zone—then explore spatial patterns and
+                  compare two years side by side.
+                </p>
+              ")
+            )
           )
         ),
         fluidRow(
@@ -297,9 +340,20 @@ new_ui <- dashboardPage(
       # ─── Predictions ────────────────────────────────────────────────────
       tabItem(tabName = "prediction",
         fluidRow(
-          column(12,
-            h3("Correlation Heatmap"),
-            plotlyOutput("correlation_heatmap")
+          column(width = 12,
+            box(
+              width = NULL, status = "info", solidHeader = TRUE,
+              HTML("
+                <h4 style='margin-bottom:0.5em;'>What you’re looking at</h4>
+                <p>
+                  This interactive map shows the average Degree Heating Weeks (DHW), Sea Surface
+                  Temperature (SST) or Sea Surface Temperature Anomaly (SSTA) for points across
+                  the Great Barrier Reef in the selected year.  Use the controls on the left to
+                  pick a year, variable, and shelf zone—then explore spatial patterns and
+                  compare two years side by side.
+                </p>
+              ")
+            )
           )
         ),
         fluidRow(
@@ -310,42 +364,30 @@ new_ui <- dashboardPage(
                 max   = max(gam_yearly_temp_avg$year),
                 value = min(gam_yearly_temp_avg$year),
                 step  = 1, sep = ""
-              )
-            ),
-            box(width = NULL, status = "primary", solidHeader = TRUE,
+              ),
               selectInput("variable_pred", "Temperature Variable",
                 choices = c(
-                  "Mean DHW (°C weeks)"  = "mean_dhw",
-                  "Mean SST (°C)"        = "mean_sst",
-                  "Mean SSTA (°C)"       = "mean_ssta"
-                ), selected = "mean_dhw"
-              )
-            ),
+                  "Mean DHW (°C weeks)"  = "pred_dhw",
+                  "Mean SST (°C)"        = "pred_sst",
+                  "Mean SSTA (°C)"       = "pred_ssta"
+                ), selected = "pred_dhw"
+              ),
             # Continental Shelf checkbox for predictions
-            box(width = NULL, status = "primary", solidHeader = TRUE,
               checkboxGroupInput("shelf_pred", "Continental Shelf pred:",
                 choices  = c("Inner", "Mid", "Outer"),
                 selected = c("Inner", "Mid", "Outer")
               )
-            ),
-            box(width = NULL, status = "info", solidHeader = TRUE,
-              div(style = "display:flex; align-items:center;",
-                sliderInput("compare_year_pred", NULL,
-                  min   = min(gam_yearly_temp_avg$year),
-                  max   = max(gam_yearly_temp_avg$year),
-                  value = min(gam_yearly_temp_avg$year),
-                  step  = 1, sep = "",
-                  width = "100%"
-                ),
-                actionButton("confirm_compare_pred", "Compare",
-                  style = "margin-left:10px;"
-                )
-              )
             )
           ),
           column(width = 8,
-            uiOutput("predicted_map_ui"),
-            uiOutput("actual_map_ui")
+            fluidRow(
+              column(width = 6,
+                uiOutput("predicted_map_ui"),
+              ),
+              column(width = 6,
+                uiOutput("actual_map_ui")
+              )
+            )
           )
         )
       )
@@ -373,6 +415,16 @@ new_server <- function(input, output, session) {
   })
 
   # ─── Main map ────────────────────────────────────────────────────────────────
+  output$map_ui <- renderUI({
+    req(input$year, input$variable)
+    box(
+      title       = paste("Map — Year:", input$year),
+      width       = NULL,
+      status      = "primary",
+      solidHeader = TRUE,
+      leafletOutput("map", height = "700px")
+    )
+  })
   output$map <- renderLeaflet({
     req(input$year, input$variable)
     df1 <- yearly_temp_avg %>%
@@ -416,8 +468,13 @@ new_server <- function(input, output, session) {
       m1 <- m1 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Inner"),
         fillColor  = "orange", color = "orange",
-        weight     = 2, opacity = 1, fillOpacity = 0.2,
-        group      = "Inner"
+        weight     = 2, opacity = 0.5, fillOpacity = 0.2,
+        group      = "Inner",
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
     if ("Mid" %in% input$shelf_map) {
@@ -425,7 +482,12 @@ new_server <- function(input, output, session) {
         data       = filter(shelf4326, shelf_class == "Mid"),
         fillColor  = "lightgreen", color = "lightgreen",
         weight     = 1, opacity = 0.5, fillOpacity = 0.2,
-        group      = "Mid"
+        group      = "Mid",
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
     if ("Outer" %in% input$shelf_map) {
@@ -433,7 +495,12 @@ new_server <- function(input, output, session) {
         data       = filter(shelf4326, shelf_class == "Outer"),
         fillColor  = "lightblue", color = "lightblue",
         weight     = 1, opacity = 0.5, fillOpacity = 0.2,
-        group      = "Outer"
+        group      = "Outer",
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
 
@@ -606,33 +673,6 @@ new_server <- function(input, output, session) {
       config(responsive = TRUE)
   })
 
-  # ─── Correlation heatmap (unchanged) ────────────────────────────────────────
-  output$correlation_heatmap <- renderPlotly({
-    cor_data <- all_data %>%
-      select(-month) %>%
-      mutate(month = lubridate::month(date)) %>%
-      select(mean_dhw, mean_sst, mean_ssta, soi_anomaly, month, year) %>%
-      na.omit()
-
-    cor_mat <- cor(cor_data)
-    melted_cor_matrix <- reshape2::melt(cor_mat)
-    melted_cor_matrix <- melted_cor_matrix[
-      melted_cor_matrix$Var1 != melted_cor_matrix$Var2 &
-      as.numeric(melted_cor_matrix$Var1) < as.numeric(melted_cor_matrix$Var2),
-    ]
-
-    corr_plot <- ggplot(melted_cor_matrix, aes(Var1, Var2, fill = value)) +
-      geom_tile(color = "white") +
-      scale_fill_gradientn(colors = RColorBrewer::brewer.pal(11, "RdYlBu"),
-                           limits = c(-1, 1)) +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-      coord_fixed() +
-      labs(x = "", y = "")
-
-    ggplotly(corr_plot)
-  })
-
   # ─── Predictions comparison reactive ────────────────────────────────────────
   comp_year_pred <- reactiveVal(NULL)
   observeEvent(input$year_pred, comp_year_pred(NULL), ignoreInit = TRUE)
@@ -700,32 +740,53 @@ new_server <- function(input, output, session) {
       m3 <- m3 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Inner"),
         fillColor  = "orange", color = "orange",
-        weight     = 1, opacity = 0.5, fillOpacity = 0.2
+        weight     = 1, opacity = 0.5, fillOpacity = 0.2,
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
     if ("Mid" %in% input$shelf_pred) {
       m3 <- m3 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Mid"),
         fillColor  = "lightgreen", color = "lightgreen",
-        weight     = 1, opacity = 0.5, fillOpacity = 0.2
+        weight     = 1, opacity = 0.5, fillOpacity = 0.2,
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
     if ("Outer" %in% input$shelf_pred) {
       m3 <- m3 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Outer"),
         fillColor  = "lightblue", color = "lightblue",
-        weight     = 1, opacity = 0.5, fillOpacity = 0.2
+        weight     = 1, opacity = 0.5, fillOpacity = 0.2,
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
-
-    m3
+    
+    m3 %>% addLegend(
+      position = "bottomright",
+      colors   = c("orange", "lightgreen", "lightblue"),
+      labels   = c("Inner Shelf", "Mid Shelf", "Outer Shelf"),
+      title    = "Shelf Zone",
+      opacity  = 0.5
+    )
   })
 
   # ─── Actual map UI ─────────────────────────────────────────────────────────
   output$actual_map_ui <- renderUI({
-    req(comp_year_pred())
+    req(input$year_pred)
     box(
-      title       = paste("Actual Temperature Map — Year:", comp_year_pred()),
+      title       = paste("Actual Temperature Map — Year:", input$year_pred),
       width       = NULL,
       status      = "primary",
       solidHeader = TRUE,
@@ -735,16 +796,17 @@ new_server <- function(input, output, session) {
 
   # ─── Actual Temperature Map ────────────────────────────────────────────────
   output$actual_map <- renderLeaflet({
-    req(comp_year_pred(), input$variable_pred)
+    req(input$year_pred, input$variable_pred)
+    actual_var <- sub("^pred_", "mean_", input$variable_pred)
     df4 <- gam_yearly_temp_avg %>%
-      filter(year == comp_year_pred()) %>%
+      filter(year == input$year_pred) %>%
       mutate(
-        val   = .data[[input$variable_pred]],
+        val   = .data[[ actual_var ]],
         popup = paste0(
-          switch(input$variable_pred,
-            pred_dhw  = "Actual DHW: ",
-            pred_sst  = "Actual SST: ",
-            pred_ssta = "Actual SSTA: "
+          switch(actual_var,
+            mean_dhw  = "Actual DHW: ",
+            mean_sst  = "Actual SST: ",
+            mean_ssta = "Actual SSTA: "
           ),
           round(val, 2)
         )
@@ -764,10 +826,10 @@ new_server <- function(input, output, session) {
         position = "topright",
         pal      = pal4,
         values   = df4$val,
-        title    = switch(input$variable_pred,
-          pred_dhw  = "Mean DHW (°C weeks)",
-          pred_sst  = "Mean SST (°C)",
-          pred_ssta = "Mean SSTA (°C)"
+        title    = switch(actual_var,
+          mean_dhw  = "Mean DHW (°C weeks)",
+          mean_sst  = "Mean SST (°C)",
+          mean_ssta = "Mean SSTA (°C)"
         ),
         opacity = 0.8
       )
@@ -776,25 +838,45 @@ new_server <- function(input, output, session) {
       m4 <- m4 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Inner"),
         fillColor  = "orange", color = "orange",
-        weight     = 1, opacity = 0.5, fillOpacity = 0.2
+        weight     = 1, opacity = 0.5, fillOpacity = 0.2,
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
     if ("Mid" %in% input$shelf_pred) {
       m4 <- m4 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Mid"),
         fillColor  = "lightgreen", color = "lightgreen",
-        weight     = 1, opacity = 0.5, fillOpacity = 0.2
+        weight     = 1, opacity = 0.5, fillOpacity = 0.2,
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
     if ("Outer" %in% input$shelf_pred) {
       m4 <- m4 %>% addPolygons(
         data       = filter(shelf4326, shelf_class == "Outer"),
         fillColor  = "lightblue", color = "lightblue",
-        weight     = 1, opacity = 0.5, fillOpacity = 0.2
+        weight     = 1, opacity = 0.5, fillOpacity = 0.2,
+        highlightOptions = highlightOptions(
+          color        = "white",             # on hover
+          weight       = 3,
+          bringToFront = TRUE
+        )
       )
     }
-
-    m4
+    m4 %>% addLegend(
+      position = "bottomright",
+      colors   = c("orange", "lightgreen", "lightblue"),
+      labels   = c("Inner Shelf", "Mid Shelf", "Outer Shelf"),
+      title    = "Shelf Zone",
+      opacity  = 0.5
+    )
   })
 }
 ```
