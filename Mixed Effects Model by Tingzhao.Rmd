@@ -160,4 +160,19 @@ write.csv(reef_full, "/Users/Daitingzhao/Downloads/NEW_reef_full_with_preds.csv"
 
 ```
 
+13. Save model performance as CSV
+```{r}
+performance <- data.frame(
+  Model = c("Original Mixed Model", "Log Transformed"),
+  RMSE = c(rmse, log_rmse),
+  MAE = c(mae, log_mae),
+  R2 = c(r2, log_r2)
+)
+
+# 打印确认
+print(performance)
+
+# 写入CSV文件
+write.csv(performance, "/Users/Daitingzhao/Downloads/mixed_model_performance.csv", row.names = FALSE)
+```
 
