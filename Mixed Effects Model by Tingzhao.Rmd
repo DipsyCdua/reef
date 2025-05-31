@@ -160,19 +160,31 @@ write.csv(reef_full, "/Users/Daitingzhao/Downloads/NEW_reef_full_with_preds.csv"
 
 ```
 
-13. Save model performance as CSV
+13. Save DHW, SST, SSTA mixed model performance to CSV
 ```{r}
-performance <- data.frame(
-  Model = c("Original Mixed Model", "Log Transformed"),
-  RMSE = c(rmse, log_rmse),
-  MAE = c(mae, log_mae),
-  R2 = c(r2, log_r2)
+
+sst_pred <- predict(sst_model, newdata = test_data, allow.new.levels = TRUE)
+ssta_pred <- predict(ssta_model, newdata = test_data, allow.new.levels = TRUE)
+
+# SST
+sst_rmse <- sqrt(mean((sst_pred - test_data$mean_sst)^2))
+sst_mae <- mean(abs(sst_pred - test_data$mean_sst))
+sst_r2 <- cor(sst_pred, test_data$mean_sst)^2
+
+# SSTA
+ssta_rmse <- sqrt(mean((ssta_pred - test_data$mean_ssta)^2))
+ssta_mae <- mean(abs(ssta_pred - test_data$mean_ssta))
+ssta_r2 <- cor(ssta_pred, test_data$mean_ssta)^2
+
+mixed_perf <- data.frame(
+  `Mixed effects model` = c("DHW", "SST", "SSTA"),
+  MAE = c(mae, sst_mae, ssta_mae),
+  RMSE = c(rmse, sst_rmse, ssta_rmse),
+  R2 = c(r2, sst_r2, ssta_r2)
 )
 
-# 打印确认
-print(performance)
+print(mixed_perf)
 
-# 写入CSV文件
-write.csv(performance, "/Users/Daitingzhao/Downloads/mixed_model_performance.csv", row.names = FALSE)
+write.csv(mixed_perf, "/Users/Daitingzhao/Downloads/mixed_model_dhw_sst_ssta.csv", row.names = FALSE)
 ```
 
