@@ -1,0 +1,1004 @@
+---
+title: "Data Cleaning & Preprocessing"
+author: "530318646, "
+date: today
+repository: https://github.com/DipsyCdua/reef.git
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    theme: sandstone
+    fig_caption: yes
+    table-of-contents: true
+    toc: true
+    toc_depth: 4
+    toc_float: true
+execute:
+  echo: true
+  tidy: true
+number-sections: false
+---
+```{r setup, echo=FALSE}
+library(tidyverse)
+library(ncdf4)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(readr)
+library(lubridate)
+library(sf)
+library(fs)
+library(viridis)
+library(terra)
+library(mapview)
+library(vroom)
+
+# database libraries
+library(DBI)
+library(RSQLite)
+library(RPostgres)
+
+set.seed(3926)
+
+# in order to not exceed the github repository storage, all the raw data we downloaded from our sources are in zipped folders
+
+# unzip data folders
+zip_folder <- "raw_input_data"
+
+zip_files <- list.files(path = zip_folder, pattern = "\\.zip$", full.names = TRUE)
+
+for (zip_file in zip_files) {
+  output_dir <- tools::file_path_sans_ext(zip_file)
+  
+  # only unzip if the output directory doesn't already exist
+  if (!dir.exists(output_dir)) {
+    unzip(zip_file, exdir = output_dir)
+    message("Extracted: ", zip_file)
+  } else {
+    message("Already extracted: ", zip_file)
+  }
+}
+```
+
+# Disclaimer!
+
+This .qmd file contains all of the data cleaning, pre-processing and output for our project. We included this as a separate file to the Shiny App and modelling files because of how long it takes to run this code. So, **this code has already been run and the cleaned data output is already saved in this github (in output_data)**. If you were to run the code, it would simply over-write the existing cleaned data without making any changes.
+
+
+# Datasets
+
+We have downloaded and used the following datasets in our project:
+
+#### 1. NOAA Coral Reef Watch Satellite Coral Bleaching Heat Stress Products
+
+**Temperature variables**: Degree-heating weeks (DHW), sea-surface temperature (SST) and sea-surface temperature anomalies (SSTA)
+**Date**: 1985-2025
+
+3 folders, 1 for each temperature variable, was provided to us. Each folder contained numerous NetCDF files with temperature data of the entire GBR region. Each NetCDF file contained lon, lat and temperature data for each month of each year from 1985-2025.
+
+#### 2. NOAA El Niño Southern Oscillation Index data
+
+**SOI Index**: SOI index anomalies (what we wanted to use) and SOI standardized index.
+
+**Date:** 1951-2025
+
+This data was downloaded as a single text file and cleaned in Python (`"soi_cleaning.py"`), then downloaded as a clean csv file in the output_data folder. It was also merged into our final, cleaned csv file.
+
+
+#### 3. Geoscience Australia GBR Bathymetry Data
+
+This folder contained a TIFF file with bathymetry data of the entire GBR (ocean depth). We used this ocean depth (metres) to categories regions into continental shelf categories; inner shelf [0, 20), mid shelf [20, 40) and outer shelf [40, inf).
+
+We then classified points on the GBR with a shelf value. We als merged regions to create 3 multipolygons that were downloaded as a Shape file for our Shiny App map visualisation.
+
+#### 4. GBR Marine Park Authority Boundary
+
+These shape files will be used to filter out geographic points to only include coordinates that lie within the official GBR marine park boundary.
+
+# Data Cleaning Pipeline
+
+## NOAA Temperature Data
+
+### From Daily NetCDF to Monthly CSV
+
+1. Extract longitude, latitude and temperature variable into dataframe
+
+2. Pivot from wide to long format
+
+3. Delete "land" coordinates
+
+4. Calculate average monthly temperature for every point in the GBR
+
+5. Create date column using file titles
+
+6. Only keep ocean data within the GBR Marine Park zone (using shape file)
+
+7. Combine different temperature csv files by month, then year, then join all years into 1 big csv
+
+8. Drop years with incomplete data (now 1987-2024)
+
+9. Using bathymetry data, create continental shelf zones (multipolygons) based on depth and assign shelf id to each point based on spatial join
+
+10. Sreate shelf shape file for shiny app
+
+11. Left Join the data with monthly SOI (all points in same month have same SOI)
+
+12. Download as csv for ease of modelling & shiny
+
+Due to sheer size of data, we decided to sacrifice the temporal resolution for high spatial resolution. We now have average daily temperature for each month from 1985-2025 for every single point.
+
+We now have 3 folders for `mean_dhw`, `mean_sst` and `mean_ssta`.
+
+5. Save as new csv file
+
+
+#### DHW
+
+```{r dhw-csv}
+# file directories
+input_dir <- "raw_input_data/Reef3/DHW"
+output_dir <- "raw_input_data/Reef3/DHW/summarised"
+dir_create(output_dir)
+
+# nc files
+nc_files <- dir_ls(input_dir, regexp = "\\.nc$")
+
+# for loop to convert nc files to csvs
+for (file_path in nc_files) {
+  file_name <- basename(file_path)
+
+  # if file is empty, ignore
+  if (file_info(file_path)$size == 0) {
+    cat("Skipping (empty file):", file_name, "\n")
+    next
+  }
+  
+  # open nc file and check if corrupted
+  nc <- try(nc_open(file_path), silent = TRUE)
+  if (inherits(nc, "try-error")) {
+    cat("Skipping (error opening):", file_name, "\n")
+    next
+  }
+  
+  # variables
+  lon <- ncvar_get(nc, "lon")
+  lat <- ncvar_get(nc, "lat")
+  time <- ncvar_get(nc, "time")
+  dhw <- ncvar_get(nc, "degree_heating_week")
+  nc_close(nc)
+
+  # var dims
+  n_lon <- length(lon)
+  n_lat <- length(lat)
+  n_time <- length(time)
+
+  # wide to long format
+  df <- expand.grid(
+    lon = as.numeric(lon),
+    lat = as.numeric(lat),
+    time = as.numeric(time),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  ) |>
+    arrange(time, desc(lat), lon) |>
+    mutate(dhw = as.vector(dhw)) |>
+    filter(!is.na(dhw)) # dropping all "land points" for storage (where dhw=NaN)
+
+  # summarise df + calculate monthly mean DHW for each location
+  summary_df <- df |>
+    group_by(lon, lat) |>
+    summarise(
+      mean_dhw = mean(dhw, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # save as csv
+  file_name <- tools::file_path_sans_ext(basename(file_path))
+  write.csv(summary_df, file.path(output_dir, paste0(file_name, "_summary.csv")))
+  
+  cat("Saved:", file_name, "\n")
+}
+
+
+# ----TEST----
+# take a look at a random csv
+# all of them have same dim (61,842 by 3) and same points
+test = read.csv("raw_input_data/Reef3/DHW/summarised/combined_2023_03_GBR_DHW_summary.csv")
+```
+
+
+#### SST
+
+```{r sst-csv}
+# file directories
+input_dir <- "raw_input_data/Reef3/SST"
+output_dir <- "raw_input_data/Reef3/SST/summarised"
+dir_create(output_dir)
+
+# nc files
+nc_files <- dir_ls(input_dir, regexp = "\\.nc$")
+
+# for loop to convert nc files to csvs
+for (file_path in nc_files) {
+  file_name <- basename(file_path)
+  
+  # if file is empty, ignore
+  if (file_info(file_path)$size == 0) {
+    cat("Skipping (empty file):", file_name, "\n")
+    next
+  }
+  
+  # open nc file and check if corrupted
+  nc <- try(nc_open(file_path), silent = TRUE)
+  if (inherits(nc, "try-error")) {
+    cat("Skipping (error opening):", file_name, "\n")
+    next
+  }
+  
+  # check if required variables exist
+  has_var <- function(nc, varname) {
+    varname %in% names(nc$var) || varname %in% names(nc$dim)
+  }
+  
+  if (!all(sapply(c("lon", "lat", "time", "analysed_sst"), function(v) has_var(nc, v)))) {
+    cat("Skipping (missing expected variables):", file_name, "\n")
+    nc_close(nc)
+    next
+  }
+
+  
+  # variables
+  lon <- ncvar_get(nc, "lon")
+  lat <- ncvar_get(nc, "lat")
+  time <- ncvar_get(nc, "time")
+  sst <- ncvar_get(nc, "analysed_sst")
+  nc_close(nc)
+
+  # var dims
+  n_lon <- length(lon)
+  n_lat <- length(lat)
+  n_time <- length(time)
+
+  # wide to long format
+  df <- expand.grid(
+    lon = as.numeric(lon),
+    lat = as.numeric(lat),
+    time = as.numeric(time),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  ) |>
+    arrange(lon, lat, time) |>
+    mutate(sst = as.vector(sst)) |>
+    filter(!is.na(sst)) # dropping all "land points" for storage (where SST=NaN)
+
+  # summarise df + calculate monthly mean SST for each location
+  summary_df <- df |>
+    group_by(lon, lat) |>
+    summarise(
+      mean_sst = mean(sst, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # save as csv
+  file_name <- tools::file_path_sans_ext(basename(file_path))
+  write.csv(summary_df, file.path(output_dir, paste0(file_name, "_summary.csv")))
+  
+  cat("Saved:", file_name, "\n")
+}
+
+
+
+# ----TEST----
+# take a look at a random csv
+# all of them have same dim (66,840 by 3) and same points
+test <- read.csv("raw_input_data/Reef3/SST/summarised/combined_1990_08_GBR_SST_summary.csv")
+
+fail_check <- nc_open("raw_input_data/Reef3/SST/combined_1986_05_GBR_SST.nc")
+names(fail_check$var)
+nc_close(fail_check)
+```
+
+
+#### SSTA
+
+```{r ssta-csv}
+# file directories
+input_dir <- "raw_input_data/Reef3/SSTA"
+output_dir <- "raw_input_data/Reef3/SSTA/summarised"
+dir_create(output_dir)
+
+# nc files
+nc_files <- dir_ls(input_dir, regexp = "\\.nc$")
+
+# for loop to convert nc files to csvs
+for (file_path in nc_files) {
+  file_name <- basename(file_path)
+
+  # if file is empty, ignore
+  if (file_info(file_path)$size == 0) {
+    cat("Skipping (empty file):", file_name, "\n")
+    next
+  }
+  
+  # open nc file and check if corrupted
+  nc <- try(nc_open(file_path), silent = TRUE)
+  if (inherits(nc, "try-error")) {
+    cat("Skipping (error opening):", file_name, "\n")
+    next
+  }
+  
+  # check if required variables exist
+  has_var <- function(nc, varname) {
+    varname %in% names(nc$var) || varname %in% names(nc$dim)
+  }
+  
+  if (!all(sapply(c("lon", "lat", "time", "sea_surface_temperature_anomaly"), function(v) has_var(nc, v)))) {
+    cat("Skipping (missing expected variables):", file_name, "\n")
+    nc_close(nc)
+    next
+  }
+
+  
+  # variables
+  lon <- ncvar_get(nc, "lon")
+  lat <- ncvar_get(nc, "lat")
+  time <- ncvar_get(nc, "time")
+  ssta <- ncvar_get(nc, "sea_surface_temperature_anomaly")
+  nc_close(nc)
+
+  # var dims
+  n_lon <- length(lon)
+  n_lat <- length(lat)
+  n_time <- length(time)
+
+  # wide to long format
+  df <- expand.grid(
+    lon = as.numeric(lon),
+    lat = as.numeric(lat),
+    time = as.numeric(time),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  ) |>
+    arrange(time, desc(lat), lon) |>
+    mutate(ssta = as.vector(ssta)) |>
+    filter(!is.na(ssta)) # dropping all "land points" for storage (where SSTA=NaN)
+
+  # summarise df + calculate monthly mean SSTA for each location
+  summary_df <- df |>
+    group_by(lon, lat) |>
+    summarise(
+      mean_ssta = mean(ssta, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # save as csv
+  file_name <- tools::file_path_sans_ext(basename(file_path))
+  write.csv(summary_df, file.path(output_dir, paste0(file_name, "_summary.csv")))
+  
+  cat("Saved:", file_name, "\n")
+}
+
+
+
+# ----TEST----
+# take a look at a random csv
+# all of them have same dim (66,840 by 3) and same points
+test <- read.csv("raw_input_data/Reef3/SSTA/summarised/combined_1985_01_GBR_SSTA_summary.csv")
+
+fail_check <- nc_open("raw_input_data/Reef3/SSTA/combined_1986_05_GBR_SSTA.nc")
+names(fail_check$var)
+nc_close(fail_check)
+```
+
+
+### Combine monthly data in same years
+
+```{r yearly-csvs}
+#----YEARLY CSVS---
+combine_monthly_files_by_year <- function(var, input_dir, output_dir) {
+  # make output dir
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  # list all relevant files
+  files <- list.files(input_dir, pattern = paste0(".*_", var, "_summary\\.csv$"), full.names = TRUE)
+
+  # extract year and month from filename
+  file_info <- tibble(
+    file = files,
+    year = str_extract(files, "(?<=combined_)\\d{4}") |> as.integer(),
+    month = str_extract(files, "(?<=combined_\\d{4}_)\\d{2}") |> as.integer()
+  )
+
+  # group by year
+  file_info_split <- split(file_info, file_info$year)
+
+  walk(file_info_split, function(group) {
+    year = unique(group$year)
+
+    # read and tag each monthly file
+    dfs <- map2(group$file, group$month, function(f, m) {
+      df <- read.csv(f, show_col_types = FALSE) |>
+        mutate(year = year, month = m)
+
+      # if variable is DHW or SSTA, sort lat ascending to fix flipped map issue
+      if (var %in% c("DHW", "SSTA")) {
+        df <- df |> arrange(lat)
+      }
+
+      df
+    })
+
+    # combine into one data frame
+    df_year <- bind_rows(dfs)
+
+    # standardise column names
+    var_col <- paste0("mean_", tolower(var))
+    df_year <- df_year |> select(lon, lat, year, month, !!var_col)
+
+    # write to CSV
+    out_file <- file.path(output_dir, paste0("monthly_", year, "_", var, "_summary.csv"))
+    write.csv(df_year, out_file)
+    cat("Wrote:", out_file, "\n")
+  })
+}
+
+# apply to data
+combine_monthly_files_by_year("DHW", "raw_input_data/Reef3/DHW/summarised", "raw_input_data/Reef3/DHW/summarised/yearly")
+combine_monthly_files_by_year("SST", "raw_input_data/Reef3/SST/summarised", "raw_input_data/Reef3/SST/summarised/yearly")
+combine_monthly_files_by_year("SSTA", "raw_input_data/Reef3/SSTA/summarised", "raw_input_data/Reef3/SSTA/summarised/yearly")
+
+```
+
+
+### Yearly CSV File for all variables
+```{r combine-vars}
+# combine all 3 variables
+merge_yearly_temp_data <- function(years = 1985:2025,
+                                   dhw_dir,
+                                   sst_dir,
+                                   ssta_dir,
+                                   base_output_dir) {
+
+  # create "combined" folder if it doesn't exist
+  output_dir <- file.path(base_output_dir, "combined")
+  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  
+  # find the corresponding, dhw, sst and ssta file for that year
+  for (yr in years) {
+    dhw_file <- file.path(dhw_dir, paste0("monthly_", yr, "_DHW_summary.csv"))
+    sst_file <- file.path(sst_dir, paste0("monthly_", yr, "_SST_summary.csv"))
+    ssta_file <- file.path(ssta_dir, paste0("monthly_", yr, "_SSTA_summary.csv"))
+
+                     
+    # helper to read csv or return NULL
+    safe_read <- function(filepath, var) {
+      if (file.exists(filepath)) {
+        read.csv(filepath, show_col_types = FALSE) |>
+        rename(!!paste0("mean_", tolower(var)) := matches(paste0("mean_", tolower(var))))
+    } else {
+    NULL
+      }
+      }
+
+    # read in var data
+    dhw <- safe_read(dhw_file, "DHW")
+    sst <- safe_read(sst_file, "SST")
+    ssta <- safe_read(ssta_file, "SSTA")
+
+
+    # skip year if all are NULL or empty
+    if (all(map_lgl(list(dhw, sst, ssta), ~ is.null(.) || nrow(.) == 0))) {
+      message("Skipping year ", yr, " (no data found)")
+      next
+    }
+
+    # merge
+    combined <- list(dhw, sst, ssta) |>
+      compact() |>  # remove nans
+      reduce(full_join, by = c("lon", "lat", "year", "month")) |>
+      arrange(month, lat, lon)
+    
+    # drop rows where any column is na
+    combined <- drop_na(combined)
+    
+    # round all vars to 2 decimal places
+    combined <- dplyr::mutate(combined, dplyr::across(c(mean_dhw, mean_sst, mean_ssta), ~ round(., 2)))
+    
+    # write merged file
+    output_path <- file.path(output_dir, paste0("combined_", yr, "_GBR_allvars.csv"))
+    write.csv(combined, output_path)
+    message("Saved merged file for year: ", yr)
+  }
+
+  message("All available yearly data merged and saved to: ", output_dir)
+}
+
+
+
+# merge data
+merge_yearly_temp_data(
+  dhw_dir = "raw_input_data/Reef3/DHW/summarised/yearly",
+  sst_dir = "raw_input_data/Reef3/SST/summarised/yearly",
+  ssta_dir = "raw_input_data/Reef3/SSTA/summarised/yearly",
+  base_output_dir = "raw_input_data/Reef3"
+)
+```
+
+### Fix Data Types
+
+Create date column and geospatial point column.
+
+```{r}
+# noaa data
+noaa_dir <- "raw_input_data/Reef3/combined"
+
+# output subfolder
+output_dir <- file.path(noaa_dir, "with_date")
+if (!dir.exists(output_dir)) dir.create(output_dir)
+
+# lisy of all files
+csv_files <- list.files(noaa_dir, pattern = "\\.csv$", full.names = TRUE)
+
+# fix columns
+walk(csv_files, function(file) {
+  df <- read.csv(file, show_col_types = FALSE)
+
+  # Convert to proper Date object (first day of each month)
+  df <- df |> 
+    mutate(date = ymd(sprintf("%04d-%02d-01", year, month))) |> # yyyy-mm-01
+    select(-year, -month) |>
+    st_as_sf(coords = c("lon", "lat"), crs = 4326) |>  # EPSG:4326 = WGS 84
+    mutate(geometry = st_as_text(geometry))  # store as WKT string
+
+  # Save to new subfolder
+  out_file <- file.path(output_dir, basename(file))
+  write.csv(df, out_file)
+  cat("Saved:", out_file, "\n")
+})
+```
+
+### Drop points outside GBR
+
+We will drop all data outside of the official GBR Marine Park region
+
+```{r}
+input_dir <- "raw_input_data/Reef3/combined/with_date"
+output_dir <- file.path(input_dir, "within_gbr")
+dir_create(output_dir)
+
+# gbr polygon and transform to wkt
+gbr_area <- st_read("raw_input_data/Great_Barrier_Reef_Marine_Park_Boundary_94_-2154764915499037387/Great_Barrier_Reef_Marine_Park_Boundary.shp")
+gbr_area <- st_transform(gbr_area, crs = 4326)
+
+# helper function to filter and save new data from each csv
+filter_and_save <- function(file_path) {
+  message("Processing: ", basename(file_path))
+  
+  # read csv and make sf
+  df <- read.csv(file_path)
+  sf_df <- st_as_sf(df, wkt = "geometry", crs = 4326)
+  
+  # filter points in gbr_area
+  inside <- st_within(sf_df, gbr_area, sparse = FALSE)[,1]
+  sf_filtered <- sf_df[inside, ]
+  
+  # write into output folder
+  output_path <- file.path(output_dir, basename(file_path))
+  write.csv(sf_filtered, output_path)
+}
+
+# now apply function to all files
+csv_files <- dir_ls(input_dir, glob = "*.csv")
+walk(csv_files, filter_and_save)
+
+# CHECK
+
+check_data <- read.csv("raw_input_data/Reef3/combined/with_date/within_gbr/combined_1985_GBR_allvars.csv")
+
+check_data <- check_data |>
+  mutate(
+    lon = as.numeric(str_extract(geometry, "(?<=c\\().+?(?=,)")),
+    lat = as.numeric(str_extract(geometry, "(?<=, ).+?(?=\\))"))
+  )
+
+ggplot(check_data, aes(x = lon, y = lat, fill = mean_dhw)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "C", na.value = "grey90") +
+  coord_fixed() +
+  labs(
+    title = "Mean DHW",
+    fill = "Mean DHW"
+  ) +
+  theme_minimal()
+```
+
+
+### Combining all CSV files into 1 dataframe
+
+```{r}
+# PLEASE NOTE I PERFORMED THIS CODE ONCE WITH DIFFERENT PATHS, SO NOW THESE CSVS ARE IN A NEW FOLDER "noaa_data" WHEN YOU WILL FIND "Reef3/combined/with_date/within_gbr"
+
+# SO FROM NOW ON, REEF CSVS WILL BE IN "noaa_data" which you have
+
+# for group members: this will be the directory to the "NOAA_data" folder in the Google drive
+
+#----REEF DATA----
+data_dir <- "raw_input_data/noaa_data"
+csv_files <- list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
+
+# read and format each csv
+load_and_process_csv <- function(file) {
+  df <- read.csv(file)
+  df <- df|>
+    mutate(
+      year = year(as.Date(date)),
+      # extract lon and lat from "c(lon, lat)"
+      lon = as.numeric(str_extract(geometry, "(?<=c\\()[^,]+")),
+      lat = as.numeric(str_extract(geometry, "(?<=,\\s)-?\\d+\\.\\d+(?=\\))"))
+    )
+  return(df)
+}
+
+# combine all csv files to 1 dataframe
+all_data <- bind_rows(lapply(csv_files, load_and_process_csv)) 
+
+# drop old geom
+all_data <- all_data |>
+  select(-geometry)
+```
+
+
+### Only include years with full data
+
+Some years only contained a few months of data. Because we know month is a huge factor for temperature (e.g. summer months have greater temperatures), we only included years with 12 months of data.
+
+New year range: 1987-2024
+```{r}
+# find years with less than 12 months (1985, 1986, 2025)
+incomplete_years <- all_data |>
+  mutate(year = year(date),
+         month = month(date)) |>
+  distinct(year, month) |>
+  count(year) |>
+  filter(n < 12) |>
+  pull(year)
+
+# drop these years
+all_data_clean <- all_data |>
+  filter(!year %in% incomplete_years) |>
+  select(-year)
+  
+# check
+incomplete_years_clean <- all_data_clean |>
+  mutate(year = year(date),
+         month = month(date)) |>
+  distinct(year, month) |>
+  count(year) |>
+  filter(n < 12) |>
+  pull(year)
+
+```
+
+## Bathymetry Data
+
+### Creating new "Shelf" boundaries
+```{r}
+bathy <- rast("raw_input_data/Great Barrier Reef Bathymetry 2020 100m/Great_Barrier_Reef_2020_100m_MSL_cog.tif")
+
+# look (wow)
+plot(bathy, main = "Great Barrier Reef Bathymetry (2020, 100m)")
+
+# reduce to only gbr
+gbr_vect <- vect(gbr_area)
+bathy_crop <- crop(bathy, gbr_vect)
+bathy_gbr <- mask(bathy_crop, gbr_vect)
+
+plot(bathy_gbr, main = "GBR Bathymetry (Clipped)")
+
+# create new shelf variable based on bathymetry data
+bathy_depth <- abs(bathy_gbr)
+
+shelf_matrix <- matrix(c(
+  0, 20, 1,  # inner shelf (1)
+  20, 40, 2, # mid shelf (2)
+  40, Inf, 3 # outer shelf (3)
+), ncol = 3, byrow = TRUE)
+
+# classify!
+shelf_class <- classify(bathy_depth, shelf_matrix)
+shelf_class <- subst(shelf_class, c(1, 2, 3), c("I", "M", "O")) # rename
+
+# see new shelf
+plot(shelf_class, col = c("skyblue", "dodgerblue", "navy"), main = "GBR Shelf Zones")
+```
+
+### Create shape file for Shiny
+```{r}
+# MAKE POLYGONS
+# lets reduce resolution by factor of 10 cause its too high res
+shelf_class_down <- terra::aggregate(shelf_class, fact = 10, fun = modal, na.rm = TRUE)
+
+# try now
+shelf_poly_raw <- terra::as.polygons(shelf_class_down, dissolve = FALSE)
+names(shelf_poly_raw) <- "shelf_zone"
+
+# dissolve polygons by shelf
+shelf_poly <- terra::aggregate(shelf_poly_raw, by = "shelf_zone", fun = mean)
+
+# convert to sf
+shelf_sf <- st_as_sf(shelf_poly) |>
+  mutate(
+    shelf_class = factor(shelf_zone, levels = c(1, 2, 3), labels = c("Inner", "Mid", "Outer"))
+  )
+
+
+# join the close multipolygons together if they are touching and same class
+shelf_sf_dissolved <- shelf_sf |>
+  group_by(shelf_class) |>
+  summarise(geometry = st_union(geometry), .groups = "drop")
+
+# look at shelf
+ggplot(shelf_sf_dissolved) +
+  geom_sf(aes(fill = shelf_class), colour = NA) +
+  coord_sf()
+
+# look (yes looks good)
+ggplot(shelf_sf) +
+  geom_sf(aes(fill = shelf_class), colour = NA) +
+  scale_fill_manual(
+    values = c("Inner" = "#1b9e77", "Mid" = "#d95f02", "Outer" = "#7570b3"),
+    name = "Shelf Zone"
+  ) +
+  coord_sf()
+
+
+# SAVE
+# make a folder
+out_dir <- "output_data/shelf_boundaries"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+# save as a shape file for map overlay
+out_path <- file.path(out_dir, "shelf_zones_dissolved.shp")
+st_write(shelf_sf_dissolved, out_path, delete_dsn = TRUE)
+```
+
+### Add new column `shelf` using cleaned bathymetry data
+```{r}
+# make vector of points from all_data_clean (lon, lat)
+points_vect <- vect(all_data_clean, geom = c("lon", "lat"), crs = crs(shelf_class))
+
+# make sure it is same class as bathymetry data
+points_vect <- project(points_vect, crs(shelf_class))
+
+# extract shelf zone for each point from shelf_class
+shelf_values <- terra::extract(shelf_class, points_vect)
+
+# bind shelf values to data
+all_data_clean$shelf <- shelf_values[, 2]  # column 2 = extracted class
+
+# check some random year
+points_1990 <- all_data_clean |>
+  filter(date == as.Date("1990-01-01"))
+
+ggplot(points_1990, aes(x = lon, y = lat, colour = shelf)) +
+  geom_point(size = 0.5, alpha = 0.8) +
+  scale_colour_manual(values = c("I" = "skyblue", "M" = "dodgerblue", "O" = "navy")) +
+  coord_fixed() +
+  labs(title = "GBR Shelf Classification on 1990-01-01",
+       colour = "Shelf Zone") +
+  theme_minimal()
+```
+
+### Join Data with SOI Index & Download (NOW COMPLETE)
+```{r}
+# make sure soi has same "date"
+soi <- dplyr::rename(soi, date = Date)
+
+# final join
+reef03_data <- all_data_clean |>
+  left_join(soi, by = "date")
+
+# drop year 2025!!!
+reef03_data_clean <- reef03_data |>
+  filter(date <= "2024-12-01")
+
+# download data
+write.csv(reef03_data, file = "output_data/NEW_reef_full.csv")
+
+# load in downloaded data when needed
+reef03_download <- vroom(
+  file      = "output_data/NEW_reef_full.csv",
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))  # parse date up front
+)
+```
+
+# Database
+
+Initially, we thought it would be a good idea to put all of our data into an SQL database. We believed it would be easier for all the group members to access the data and potentially improve the performance of our Shiny App. However, after consulting with our tutor, this turned out to be redundant and it was indeed easier to just use data from a static csv file (which is what we ended up doing).
+
+Therefore, this code is not relevant to our project. However, it demonstrates evidence of how we tried to troubleshoot the data scalability issue.
+
+## SQL schema
+
+::: panel-tabset
+
+### Create Schema (DON'T RUN)
+```{r con}
+# connection
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host = "localhost",
+  dbname = "reef03_noaa_db",
+  user = "postgres",
+  password = "123imanepostgres",
+  port = 5432
+)
+
+# check if empty
+dbListTables(con)
+```
+
+```{r schema}
+# postgis
+dbExecute(con, "
+CREATE EXTENSION IF NOT EXISTS postgis;
+")
+
+
+# soi_data
+dbExecute(con, "
+DROP TABLE IF EXISTS soi_data;")
+
+dbExecute(con, "
+CREATE TABLE soi_data (
+    soi_id SERIAL PRIMARY KEY,
+    date DATE,
+    soi_standard DOUBLE PRECISION,
+    soi_anomaly DOUBLE PRECISION
+);
+")
+
+# regions
+# dbExecute(con, "
+# DROP TABLE IF EXISTS regions;")
+# 
+# dbExecute(con, "
+# CREATE TABLE regions (
+#     region_id SERIAL PRIMARY KEY,
+#     region_name VARCHAR(50),
+#     geom GEOMETRY(Polygon, 4326)
+# );
+# ")
+
+
+# reef_locations
+dbExecute(con, "
+DROP TABLE IF EXISTS reef_locations;")
+
+dbExecute(con, "CREATE TABLE reef_locations (
+    location_id SERIAL PRIMARY KEY,
+    geom GEOMETRY(Point, 4326)
+);
+")
+
+# environmental_data
+dbExecute(con, "
+DROP TABLE IF EXISTS environmental_data;")
+
+dbExecute(con, "
+CREATE TABLE environmental_data (
+    data_id SERIAL PRIMARY KEY,
+    location_id INT REFERENCES reef_locations(location_id),  -- foreign key
+    date DATE,
+    mean_sst DOUBLE PRECISION,
+    mean_dhw DOUBLE PRECISION,
+    mean_ssta DOUBLE PRECISION,
+    FOREIGN KEY (location_id) REFERENCES reef_locations(location_id) ON DELETE CASCADE
+);
+")
+
+# indexes
+dbExecute(con, "CREATE INDEX idx_environmental_data_date ON environmental_data (date)")
+dbExecute(con, "CREATE INDEX idx_soi_data_date ON soi_data (date)")
+dbExecute(con, "CREATE INDEX idx_reef_locations ON reef_locations (location_id)")
+
+# see
+dbListTables(con)
+```
+
+::: .tabset
+
+#### soi_data (DON'T RUN)
+```{r soi-db}
+# soi data
+dbExecute(con, "DELETE FROM soi_data")
+dbWriteTable(con, "soi_data", soi, append = TRUE, row.names = FALSE)
+dbGetQuery(con, "SELECT * FROM soi_data;")
+```
+
+#### reef_locations
+
+```{r reef-loc-db}
+# forgot to add constraint
+dbExecute(con, "
+ALTER TABLE reef_locations
+ADD CONSTRAINT unique_geom UNIQUE (geom);")
+
+# just look at structure
+loc_data <- read.csv("/Users/imanelattab/Desktop/DATA3888/reef_dbs/noaa_data/with_date/combined_2024_GBR_allvars.csv")
+
+# extract unique spatial points (to avoid duplicates)
+unique_points <- loc_data |> 
+  select(geometry) |>
+  distinct()
+
+# insert unique spatial points into the reef_locations table
+for (i in 1:nrow(unique_points)) {
+  query = sprintf("
+    INSERT INTO reef_locations (geom)
+    VALUES (ST_GeomFromText('%s', 4326))
+    ON CONFLICT (geom) DO NOTHING; 
+  ", unique_points$geometry[i])
+  dbExecute(con, query)
+}
+
+# check
+dbGetQuery(con, "SELECT * FROM reef_locations LIMIT 5;")
+```
+
+#### environmental_data
+
+```{r env-db}
+# again forgot constraint
+dbExecute(con, "
+ALTER TABLE environmental_data
+ADD CONSTRAINT fk_location_id FOREIGN KEY (location_id)
+REFERENCES reef_locations(location_id)
+ON DELETE CASCADE;")
+
+# function for inserting environmental data from a single file
+insert_environmental_data <- function(file) {
+  data = read.csv(file)
+  
+  for (i in 1:nrow(data)) {
+    # find  location_id based on the geometry
+    query_location_id <- sprintf("
+      SELECT location_id 
+      FROM reef_locations 
+      WHERE geom = ST_GeomFromText('%s', 4326);
+    ", data$geometry[i])
+    
+    # get location_id
+    location_id <- dbGetQuery(con, query_location_id)$location_id
+    
+    # insert environmental data into environmental_data table
+    query_env_data <- sprintf("
+      INSERT INTO environmental_data (location_id, date, mean_sst, mean_dhw, mean_ssta)
+      VALUES (%d, '%s', %f, %f, %f);
+    ", location_id, data$date[i], data$mean_sst[i], data$mean_dhw[i], data$mean_ssta[i])
+    
+    dbExecute(con, query_env_data)
+  }
+}
+
+# get the list of all files to process
+files <- list.files(path = "/Users/imanelattab/Desktop/DATA3888/reef_dbs/noaa_data/with_date", full.names = TRUE)
+
+# loop through each file and insert the data
+for (file in files) {
+  insert_environmental_data(file)
+}
+
+```
+
+:::
+
+
+# Close Connection
+```{r}
+dbDisconnect(sqlite_con)
+dbDisconnect(con)
+```

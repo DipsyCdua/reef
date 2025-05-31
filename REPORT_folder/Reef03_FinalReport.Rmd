@@ -1,0 +1,398 @@
+---
+title: Understanding the relationship between the El Niño Southern Oscillation and Degree Heating Weeks and their effects across the Great Barrier Reef
+
+# Use letters for affiliations
+author:
+  - name: Charley Johnson
+    affiliation: a
+  - name: Chengxi Duan
+    affiliation: b
+  - name: Fiona Li
+    affiliation: c
+  - name: Hussain Karimi
+    affiliation: d
+  - name: Imane Lattab
+    affiliation: e
+  - name: Kunlei Zhang
+    affiliation: f
+  - name: Oscar Lo Lu
+    affiliation: g
+  - name: Tingzhao Dai
+    affiliation: h
+address:
+  - code: a
+    address: 
+  - code: b
+    address: 
+  - code: c
+    address: 
+  - code: d
+    address: 
+  - code: e
+    address: 
+  - code: f
+    address: 
+  - code: g
+    address: 
+  - code: h
+    address: 
+    
+# Optional: line of arbitrary text with additional information.
+# Could be used, for example, to mention the bibliographic info in a post-print.
+# If not specified, defaults to "This version was compiled on \today"
+#date_subtitle: Published in *Journal of Statistical Software*, 2018
+
+
+# Place eg a DOI URL or CRAN Package URL here
+doi_footer: "https://github.com/DipsyCdua/reef"
+
+# Abstract
+abstract: |
+  executive summary
+ 
+
+# Optional: One or more keywords
+keywords:
+  - enso
+  - great barrier reef
+  - gbr
+  - ocean temperature
+
+# Paper size for the document, values of letter and a4
+papersize: letter
+
+# Font size of the document, values of 9pt (default), 10pt, 11pt and 12pt
+fontsize: 9pt
+
+# Optional: Force one-column layout, default is two-column
+#one_column: true
+
+# Optional: Enables lineno mode, but only if one_column mode is also true
+#lineno: true
+
+# Optional: Enable one-sided layout, default is two-sided
+#one_sided: true
+
+# Optional: Enable section numbering, default is unnumbered
+#numbersections: true
+
+# Optional: Specify the depth of section number, default is 5
+#secnumdepth: 5
+
+# Optional: Skip inserting final break between acknowledgements, default is false
+skip_final_break: true
+
+# Make sure there is ref list
+# output: pinp::pinp
+
+# Optional: Bibliography 
+bibliography: pinp
+
+# Optional: Enable a 'Draft' watermark on the document
+#watermark: true
+
+footer_contents: "Reef03 MARS/DATA3888 2025, The University of Sydney"
+
+# Produce a pinp document
+output: pinp::pinp
+
+---
+```{r setup, include=FALSE, echo=FALSE}
+library(broom)  
+library(car)  
+library(caret)  
+library(DBI)  
+library(dplyr)  
+library(fs)  
+library(gghighlight)  
+library(ggplot2)  
+library(gratia)  
+library(here)  
+library(itsadug)  
+library(kableExtra)  
+library(knitr)  
+library(leaflet)  
+library(leaps)  
+library(lmtest)  
+library(lme4)  
+library(lubridate)  
+library(mapview)  
+library(MASS)  
+library(mgcv)  
+library(ncdf4)  
+library(parallel)  
+library(patchwork)  
+library(plotly)  
+library(purrr)  
+library(randomForest)  
+library(readr)  
+library(reshape2)  
+library(RColorBrewer)  
+library(RPostgres)  
+library(RSQLite)  
+library(sf)  
+library(shiny)  
+library(shinydashboard)  
+library(stringr)  
+library(terra)  
+library(tidyr)  
+library(tidyverse)  
+library(vroom)  
+library(viridis)
+library(gratia)
+
+
+set.seed(3926)
+
+
+# # UNCOMMENT FOR PINP DEBUGGING
+# # install cran version
+# install.packages('tinytex')
+# # update
+# update.packages(ask = FALSE, checkBuilt = TRUE)
+# # check version (old, so move to next line)
+# tinytex::tlmgr_update()
+# # reinstall new version
+# tinytex::reinstall_tinytex(repository = "illinois")
+```
+
+# Formatting stuff
+
+if (Fabricius, 2000), use \citep{fabricius2000biodiversity}
+
+if (Kayanne, 2016), use \citep{kayanne2016validation}
+
+
+(refer to **Appendix Fig.x.** for <>)
+
+(refer to **Fig.x.**)
+
+#\newpage
+
+
+# Introduction
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
+\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\end{figure}
+
+
+
+# Methods
+
+
+
+
+```{r, message=FALSE, include=FALSE}
+# read in performance metrics
+lr <- vroom(here("model_code_raw", "Linear regression performance metrics.csv"),
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))
+) |>
+  rename(R2 = `R^2`,
+         Variable = `Linear regression`) |>
+  mutate(Model = "LR")
+
+mm <- vroom(here("model_code_raw", "mixed_model_dhw_sst_ssta by Tingzhao.csv"),
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))
+) |>
+  rename(Variable = Mixed.effects.model) |>
+  mutate(Model = "MEM")
+
+# rf
+
+gam <- vroom(here("model_code_raw", "gam_model_full_eval_metrics.csv"),
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))
+) |>
+  rename(Variable = GAM_model) |>
+  mutate(Model = "GAM")
+
+# join!
+combined_pm <- bind_rows(lr, mm, gam)
+
+# plot
+pm_data <- combined_pm |>
+  pivot_longer(cols = c(MAE, RMSE, R2), names_to = "Metric", values_to = "Value")
+```
+
+```{r, echo=FALSE, out.width="100%", out.height="200px", fig.pos="H", fig.cap="Figure 2 - Model Evaluation using Performance Metrics"}
+ggplot(pm_data, aes(x = Variable, y = Value, fill = Model)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~ Metric, scales = "free_y") +
+  labs(title = "Model Performance Metrics by Variable",
+       x = "Variable", y = "Value") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal(base_size = 8)
+```
+
+
+# Results
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
+\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
+\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
+\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\end{figure}
+
+
+# Discussion
+
+
+
+# Contributions
+
+##### Charley Johnson
+
+
+
+##### Chengxi Duan
+
+
+
+##### Fiona Li
+
+Finding and collating scientific literature over the semester to help develop the research question. Editing and formatting both the report and the presentation slides/script. Presented the introduction, background and aims for the presentation. Worked on the executive summary, background and aims. Assisted Oscar, Charley and Imane with the discussion.
+
+##### Hussain Karimi
+
+
+
+##### Imane Lattab
+
+Data exploration and collection. Data cleaning & preprocessing the relevant output data for modelling, shiny and report. Worked on GAM model. Collaborated with Chengxi to finalise shiny app. Organised model development and evaluation methods. Worked with others on presentation script. Wrote results, and some of methods and results. Created reproducible report.
+
+
+##### Kunlei Zhang
+
+
+
+##### Oscar Lo Lu
+
+
+
+##### Tingzhao Dai
+
+
+
+\newpage
+
+# Appendix
+
+
+## Appendix: A: Linear Regression Assumption Checking
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/lr_qqplots.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/lr_resplot.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/lr_reshist.png}
+\end{center}
+
+## Appendix B: Linear Regression Predicted vs Actual
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/lr_graph.png}
+\end{center}
+
+## Appendix C: Global GAM Model Summaries
+
+```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
+kable(read.csv(here("model_code_raw", "gam_dhw_smooth_terms.csv")), digits = 3, caption = "Smooth Terms for GAM (DHW)")
+```
+
+```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
+kable(read.csv(here("model_code_raw", "gam_sst_smooth_terms.csv")), digits = 3, caption = "Smooth Terms for GAM (SST)")
+```
+
+```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
+kable(read.csv(here("model_code_raw", "gam_ssta_smooth_terms.csv")), digits = 3, caption = "Smooth Terms for GAM (SSTA)")
+```
+
+
+## Appendix D: Global GAM 'SOI' Smoothed Functionss
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/dhw_soi.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/sst_soi.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/ssta_soi.png}
+\end{center}
+
+
+## Appendix E: Global GAM 'SOI' Smoothed Functions by 'Shelf'
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/soi_shelf_dhw.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/soi_shelf_sst.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/soi_shelf_ssta.png}
+\end{center}
+
+
+## Appendix F: Global GAM 'SOI' Smoothed Functions by 'Month'
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/soi_month_dhw.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/soi_month_sst.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/soi_month_ssta.png}
+\end{center}
+
+## Appendix G: Shiny Application
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/shiny_map_a.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/shiny_map_b.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/shiny_enso_temp_a.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/shiny_enso_temp_b.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/shiny_predictions.png}
+\end{center}

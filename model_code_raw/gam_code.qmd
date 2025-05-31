@@ -1,0 +1,689 @@
+---
+title: "General Additive Model"
+author: "530318646, "
+date: today
+repository: https://github.com/DipsyCdua/reef.git
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    theme: sandstone
+    fig_caption: yes
+    table-of-contents: true
+    toc: true
+    toc_depth: 4
+    toc_float: true
+execute:
+  echo: true
+  tidy: true
+number-sections: false
+---
+```{r setup, echo=FALSE}
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(stringr)
+library(lubridate)
+library(readr)
+library(tidyr)
+library(viridis)
+library(plotly)
+library(gghighlight)
+library(vroom)
+library(reshape2)
+library(RColorBrewer)
+library(gratia)
+
+library(mgcv)
+library(readr)
+library(parallel)
+library(patchwork)
+library(here)
+library(itsadug)
+
+set.seed(3926)
+```
+
+# Data Preparation
+
+## Read in data & process
+```{r vroom-data, message=FALSE}
+all_data <- vroom(here("output_data", "NEW_reef_full.csv"),
+  delim     = ",",
+  col_types = cols(date = col_date(format = ""))
+) %>%
+  mutate(
+    year  = year(date),
+    month = lubridate::month(date),
+    shelf = as.factor(shelf)
+  )
+
+all_data_model <- all_data |>
+  mutate(month = lubridate::month(date),
+         shelf = as.factor(shelf))
+```
+
+# Approach 1 - GAMs for variable effects
+
+## Train & Test GAMs
+
+So, we have a separate model for each temperature measure but with the same predictors.
+
+We also subsetted the data based on year for training & testing, (potentially year as a variable?)
+
+This is not for accuracy of predictions but to examine effects of variables like SOI, month and shelf on temperature. We will train on 1987-2010 and test on 2011-2024.
+
+This is why for our predictions, we use a different approach which is to do a "rolling origin CV" where we train on years up to *t* and test on *t+1*.
+
+### Train:Test - Subsetting Train Data
+```{r}
+train_data <- filter(all_data_model, year <= 2015)
+test_data  <- filter(all_data_model, year > 2015)
+```
+
+### Sub-sampling spatial points by shelf
+```{r}
+# get unique spatial points with shelf info
+unique_points <- all_data_model %>%
+  distinct(lon, lat, shelf)
+
+# for each shelf, sample n points (e.g., 50 points per shelf)
+n_points_per_shelf <- 50
+
+sampled_points <- unique_points %>%
+  group_by(shelf) %>%
+  slice_sample(n = n_points_per_shelf) %>%
+  ungroup()
+
+# filter full dataset to keep only sampled points (all years)
+thinned_data <- all_data_model %>%
+  semi_join(sampled_points, by = c("lon", "lat", "shelf"))
+
+# split into train and test by year
+train_data <- thinned_data %>% filter(year <= 2015)
+train_data$mean_dhw <- ifelse(train_data$mean_dhw == 0, 1e-3, train_data$mean_dhw)
+
+test_data  <- thinned_data %>% filter(year > 2015)
+
+```
+
+
+### DHW
+```{r}
+gam_dhw_global <- bam(mean_dhw ~ 
+                        s(soi_anomaly) + 
+                        s(year) + 
+                        s(month, bs = "cc", k = 12) +
+                        shelf +
+                        ti(soi_anomaly, by = shelf) +
+                        ti(soi_anomaly, year) +
+                        ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                      data = train_data,
+                      method = "fREML",
+                      discrete = TRUE,
+                      family = Gamma(link = "log"),
+                      nthreads = 4)
+
+# predict and evaluate on test data
+dhw_pred_global <- predict(
+  gam_dhw_global,
+  newdata = test_data,
+  type   = "response"
+) 
+dhw_pred_global <- pmin(dhw_pred_global, 16)
+
+test_data$pred_dhw <- dhw_pred_global
+
+# performance metrics
+dhw_rmse_global <- round(sqrt(mean((test_data$pred_dhw - test_data$mean_dhw)^2, na.rm = TRUE)), 2)
+dhw_mae_global <- round(mean(abs(test_data$pred_dhw - test_data$mean_dhw), na.rm = TRUE))
+
+
+# save model summary
+dhw_summary_global <- summary(gam_dhw_global)
+
+dhw_smooths_df <- as.data.frame(dhw_summary_global$s.table)
+
+dhw_smooths_df$term <- rownames(dhw_smooths_df)
+rownames(dhw_smooths_df) <- NULL
+
+# drop the ref.edf column to fit report
+dhw_smooths_df <- dhw_smooths_df |>
+  select(-Ref.df)
+
+write.csv(dhw_smooths_df, "gam_dhw_smooth_terms.csv", row.names = FALSE)
+```
+
+### SST
+```{r}
+gam_sst_global <- bam(mean_sst ~ 
+                        s(soi_anomaly) + 
+                        s(year) + 
+                        s(month, bs = "cc", k = 12) +
+                        shelf +
+                        ti(soi_anomaly, by = shelf) +
+                        ti(soi_anomaly, year) +
+                        ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                      data = train_data,
+                      method = "fREML",
+                      discrete = TRUE,
+                      family = Gamma(link = "log"),
+                      nthreads = 4)
+
+sst_pred_global <- predict(
+  gam_sst_global,
+  newdata = test_data,
+  type   = "response" 
+)
+test_data$pred_sst <- sst_pred_global
+
+sst_rmse_global <- sqrt(mean((sst_pred_global - test_data$mean_sst)^2, na.rm = TRUE))
+
+# save
+sst_summary_global <- summary(gam_sst_global)
+
+sst_smooths_df <- as.data.frame(sst_summary_global$s.table)
+
+sst_smooths_df$term <- rownames(sst_smooths_df)
+rownames(sst_smooths_df) <- NULL
+
+# drop the ref.edf column to fit report
+sst_smooths_df <- sst_smooths_df |>
+  select(-Ref.df)
+
+write.csv(sst_smooths_df, "gam_sst_smooth_terms.csv", row.names = FALSE)
+```
+
+### SSTA
+```{r}
+gam_ssta_global <- bam(mean_ssta ~ 
+                        s(soi_anomaly) + 
+                        s(year) + 
+                        s(month, bs = "cc", k = 12) +
+                        shelf +
+                        ti(soi_anomaly, by = shelf) +
+                        ti(soi_anomaly, year) +
+                        ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                      data = train_data,
+                      method = "fREML",
+                      discrete = TRUE,
+                      nthreads = 4)
+
+ssta_pred_global <- predict(gam_ssta_global, newdata = test_data)
+test_data$pred_ssta <- ssta_pred_global
+
+ssta_rmse_global <- sqrt(mean((ssta_pred_global - test_data$mean_ssta)^2, na.rm = TRUE))
+
+# save
+ssta_summary_global <- summary(gam_ssta_global)
+
+ssta_smooths_df <- as.data.frame(ssta_summary_global$s.table)
+
+ssta_smooths_df$term <- rownames(ssta_smooths_df)
+rownames(ssta_smooths_df) <- NULL
+
+# drop the ref.edf column to fit report
+ssta_smooths_df <- ssta_smooths_df |>
+  select(-Ref.df)
+
+write.csv(ssta_smooths_df, "gam_ssta_smooth_terms.csv", row.names = FALSE)
+```
+
+## Smooth Effects of SOI
+
+```{r}
+# dhw
+png(here("REPORT_folder/report_images","dhw_soi.png"), width = 800, height = 600, res = 150)
+plot_smooth(gam_dhw_global, view = "soi_anomaly", rug = TRUE, transform = exp, 
+            ylim = c(min(train_data$mean_dhw), max(train_data$mean_dhw)),
+            xlim = range(train_data$soi_anomaly))
+title(main = "Smooth function of SOI anomaly on DHW")
+dev.off()
+
+# sst
+png(here("REPORT_folder/report_images","sst_soi.png"), width = 800, height = 600, res = 150)
+plot_smooth(gam_sst_global, view = "soi_anomaly", rug = TRUE, transform = exp,
+            xlim = range(train_data$soi_anomaly))
+title(main = "Smooth function of SOI anomaly on SST")
+dev.off()
+
+# ssta
+png(here("REPORT_folder/report_images","ssta_soi.png"), width = 800, height = 600, res = 150)
+plot_smooth(gam_ssta_global, view = "soi_anomaly", rug = FALSE,
+            ylim = c(min(train_data$mean_ssta), max(train_data$mean_ssta)),
+            xlim = range(train_data$soi_anomaly))
+title(main = "Smooth function of SOI anomaly on SSTA")
+dev.off()
+
+```
+
+## Looking at Shelf Effects
+
+### DHW
+```{r}
+# get unique shelf levels
+shelf_levels <- levels(all_data_model$shelf)
+
+# create a grid of soi_anomaly values
+soi_vals <- seq(min(all_data_model$soi_anomaly, na.rm = TRUE),
+                max(all_data_model$soi_anomaly, na.rm = TRUE),
+                length.out = 200)
+
+# create a newdata dataframe with all combinations of soi_anomaly and shelf
+newdata <- expand.grid(
+  soi_anomaly = soi_vals,
+  shelf = shelf_levels,
+  year = median(all_data_model$year, na.rm = TRUE),   # fix year for plotting
+  month = median(all_data_model$month, na.rm = TRUE)  # fix month for plotting
+)
+
+# predict
+pred <- predict(gam_dhw_global, newdata = newdata, se.fit = TRUE, type = "response")
+
+# combine predictions
+plot_df <- newdata %>%
+  mutate(
+    fit_resp = pred$fit,
+    lower = pred$fit - 2 * pred$se.fit,
+    upper = pred$fit + 2 * pred$se.fit
+  )
+
+ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
+  geom_line(size = 1) +
+  ylim(0, 16) +
+  labs(
+    title = "Smooth Effect of SOI on DHW by Shelf",
+    x = "SOI",
+    y = "Predicted DHW",
+    color = "Shelf Zone",
+    fill = "Shelf Zone"
+  ) +
+  theme_minimal()
+
+ggsave(here("REPORT_folder/report_images","soi_shelf_dhw.png"), width = 6, height = 4, dpi = 300)
+```
+
+### SST
+```{r}
+pred <- predict(gam_sst_global, newdata = newdata, se.fit = TRUE, type = "response")
+
+plot_df <- newdata %>%
+  mutate(
+    fit_resp = pred$fit,
+    lower = pred$fit - 2 * pred$se.fit,
+    upper = pred$fit + 2 * pred$se.fit
+  )
+
+ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Smooth Effect of SOI on SST by Shelf",
+    x = "SOI",
+    y = "Predicted SST",
+    color = "Shelf Zone",
+    fill = "Shelf Zone"
+  ) +
+  theme_minimal()
+ggsave(here("REPORT_folder/report_images","soi_shelf_sst.png"), width = 6, height = 4, dpi = 300)
+
+```
+
+### SSTA
+```{r}
+pred <- predict(gam_ssta_global, newdata = newdata, se.fit = TRUE, type = "response")
+
+plot_df <- newdata %>%
+  mutate(
+    fit_resp = pred$fit,
+    lower = pred$fit - 2 * pred$se.fit,
+    upper = pred$fit + 2 * pred$se.fit
+  )
+
+ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
+  geom_line(size = 1) +
+  ylim(-3, 3) +
+  xlim(-5, 5) +
+  labs(
+    title = "Smooth Effect of SOI on SSTA by Shelf",
+    x = "SOI",
+    y = "Predicted SSTA",
+    color = "Shelf Zone",
+    fill = "Shelf Zone"
+  ) +
+  theme_minimal()
+
+ggsave(here("REPORT_folder/report_images","soi_shelf_ssta.png"), width = 6, height = 4, dpi = 300)
+```
+
+## Looking at Month Effects
+
+### DHW
+```{r}
+# define month and shelf levels
+months <- 1:12
+shelves <- unique(all_data_model$shelf)  # assuming shelf is a factor or character
+
+# create grid of soi values
+soi_vals <- seq(min(all_data_model$soi_anomaly, na.rm = TRUE),
+                max(all_data_model$soi_anomaly, na.rm = TRUE),
+                length.out = 200)
+
+# create newdata for prediction
+newdata <- expand.grid(
+  soi_anomaly = soi_vals,
+  shelf = shelves,
+  month = months
+)
+
+# add fixed year (as numeric)
+newdata$year <- median(all_data_model$year, na.rm = TRUE)
+
+# ensure shelf is same type as model
+newdata$shelf <- factor(newdata$shelf, levels = levels(all_data_model$shelf))
+
+# predict
+pred <- predict(gam_dhw_global, newdata = newdata, se.fit = TRUE, type = "response")
+
+# build plotting data
+plot_df <- newdata %>%
+  mutate(
+    fit_resp = pred$fit,
+    lower = fit_resp - 2 * pred$se.fit,
+    upper = fit_resp + 2 * pred$se.fit
+  )
+
+# plot by month
+ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
+  geom_line(size = 1) +
+  ylim(0, 16) +
+  labs(
+    title = "Smooth Effect of SOI on DHW by Month",
+    x = "SOI Anomaly",
+    y = "Predicted DHW",
+    color = "Month"
+  ) +
+  theme_minimal()
+
+ggsave(here("REPORT_folder/report_images","soi_month_dhw.png"), width = 6, height = 4, dpi = 300)
+```
+
+### SST
+```{r}
+# predict
+pred <- predict(gam_sst_global, newdata = newdata, se.fit = TRUE, type = "response")
+
+# build plotting data
+plot_df <- newdata %>%
+  mutate(
+    fit_resp = pred$fit,
+    lower = fit_resp - 2 * pred$se.fit,
+    upper = fit_resp + 2 * pred$se.fit
+  )
+
+# plot by month
+ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
+  geom_line(size = 1) +
+  labs(
+    title = "Smooth Effect of SOI on SST by Month",
+    x = "SOI Anomaly",
+    y = "Predicted SST",
+    color = "Month"
+  ) +
+  theme_minimal()
+
+ggsave(here("REPORT_folder/report_images","soi_month_sst.png"), width = 6, height = 4, dpi = 300)
+```
+
+### SSTA
+```{r}
+# predict
+pred <- predict(gam_ssta_global, newdata = newdata, se.fit = TRUE, type = "response")
+
+# build plotting data
+plot_df <- newdata %>%
+  mutate(
+    fit_resp = pred$fit,
+    lower = fit_resp - 2 * pred$se.fit,
+    upper = fit_resp + 2 * pred$se.fit
+  )
+
+# plot by month
+ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
+  geom_line(size = 1) +
+  ylim(-4, 4) +
+  labs(
+    title = "Smooth Effect of SOI on SSTA by Month",
+    x = "SOI Anomaly",
+    y = "Predicted SSTA",
+    color = "Month"
+  ) +
+  theme_minimal()
+ggsave(here("REPORT_folder/report_images","soi_month_ssta.png"), width = 6, height = 4, dpi = 300)
+```
+
+
+## Download performance metrics (for report)
+```{r}
+library(dplyr)
+
+# Function to evaluate on test data
+evaluate_gam <- function(obs, pred, var_name = "variable") {
+  ss_res <- sum((obs - pred)^2, na.rm = TRUE)
+  ss_tot <- sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE)
+  
+  r2_test <- 1 - ss_res / ss_tot
+  
+  data.frame(
+    variable = var_name,
+    RMSE = sqrt(mean((obs - pred)^2, na.rm = TRUE)),
+    MAE  = mean(abs(obs - pred), na.rm = TRUE),
+    R2_test = r2_test
+  )
+}
+
+# Extract training R² from model summaries
+get_training_r2 <- function(model, var_name) {
+  mod_summary <- summary(model)
+  data.frame(
+    variable = var_name,
+    R2_train = mod_summary$r.sq
+  )
+}
+
+# Example for your three models (replace with your actual model objects and test predictions)
+dhw_eval <- evaluate_gam(test_data$mean_dhw, test_data$pred_dhw, "DHW")
+sst_eval <- evaluate_gam(test_data$mean_sst, test_data$pred_sst, "SST")
+ssta_eval <- evaluate_gam(test_data$mean_ssta, test_data$pred_ssta, "SSTA")
+
+dhw_train <- get_training_r2(gam_dhw_global, "DHW")
+sst_train <- get_training_r2(gam_sst_global, "SST")
+ssta_train <- get_training_r2(gam_ssta_global, "SSTA")
+
+# Combine test eval metrics
+test_eval <- bind_rows(dhw_eval, sst_eval, ssta_eval)
+
+# Combine training R2
+train_eval <- bind_rows(dhw_train, sst_train, ssta_train)
+
+# Join both by variable
+full_eval <- left_join(test_eval, train_eval, by = "variable") |> 
+  select(-R2_test) |> 
+  rename(R2 = R2_train,
+         GAM_model = variable)
+
+# Write to CSV
+write.csv(full_eval, "gam_model_full_eval_metrics.csv", row.names = FALSE)
+
+# Print table
+print(full_eval)
+
+```
+
+
+# Approach 2 - GAMs for Forecasting
+
+This is the approach we use for modelling predictions, 
+
+## Fit Model on Train & Predict Test
+```{r}
+#train test split
+train_data <- all_data_model |> filter(year <= 2015) 
+test_data  <- all_data_model |> filter(year > 2015)
+
+# pre-initialise prediction columns with na
+all_data_model$pred_dhw <- NA_real_
+all_data_model$pred_sst <- NA_real_
+all_data_model$pred_ssta <- NA_real_
+
+for (t in 1988:2024) {
+  cat("Processing year:", t, "\n")
+  
+  train_data <- all_data_model %>% filter(year < t)
+  test_indices <- which(all_data_model$year == t)
+  test_data <- all_data_model[test_indices, ]
+  
+  # dhw
+  gam_dhw <- bam(mean_dhw ~ 
+                   s(soi_anomaly) + 
+                   s(month, bs = "cc", k = 12) + 
+                   shelf +
+                   ti(soi_anomaly, by = shelf) +
+                   ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                 data = train_data,
+                 method = "fREML",
+                 discrete = TRUE,
+                 nthreads = 4)
+
+  all_data_model$pred_dhw[test_indices] <- predict(gam_dhw, newdata = test_data)
+
+  # sst
+  gam_sst <- bam(mean_sst ~ 
+                   s(soi_anomaly) + 
+                   s(month, bs = "cc", k = 12) + 
+                   shelf +
+                   ti(soi_anomaly, by = shelf) +
+                   ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                 data = train_data,
+                 method = "fREML",
+                 discrete = TRUE,
+                 nthreads = 4)
+
+  all_data_model$pred_sst[test_indices] <- predict(gam_sst, newdata = test_data)
+
+  # ssta
+  gam_ssta <- bam(mean_ssta ~ 
+                   s(soi_anomaly) + 
+                    s(month, bs = "cc", k = 12) + 
+                    shelf +
+                    ti(soi_anomaly, by = shelf) +
+                    ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                  data = train_data,
+                  method = "fREML",
+                  discrete = TRUE,
+                  nthreads = 4)
+
+  all_data_model$pred_ssta[test_indices] <- predict(gam_ssta, newdata = test_data)
+}
+
+
+
+```
+
+## Performance metrics for Test Data
+```{r}
+# for dhw
+dhw_metrics <- all_data_model %>%
+  filter(!is.na(pred_dhw)) %>%
+  group_by(year) %>%
+  summarise(
+    RMSE = round(yardstick::rmse_vec(truth = mean_dhw, estimate = pred_dhw), 2),
+    MAE  = round(yardstick::mae_vec(truth = mean_dhw, estimate = pred_dhw), 2),
+    R2   = round(yardstick::rsq_vec(truth = mean_dhw, estimate = pred_dhw), 2)
+  )
+
+# for sst
+sst_metrics <- all_data_model %>%
+  filter(!is.na(pred_sst)) %>%
+  group_by(year) %>%
+  summarise(
+    RMSE = round(yardstick::rmse_vec(truth = mean_sst, estimate = pred_sst), 2),
+    MAE  = round(yardstick::mae_vec(truth = mean_sst, estimate = pred_sst), 2),
+    R2   = round(yardstick::rsq_vec(truth = mean_sst, estimate = pred_sst), 2)
+  )
+
+# also for ssta
+ssta_metrics <- all_data_model %>%
+  filter(!is.na(pred_ssta)) %>%
+  group_by(year) %>%
+  summarise(
+    RMSE = round(yardstick::rmse_vec(truth = mean_ssta, estimate = pred_ssta), 2),
+    MAE  = round(yardstick::mae_vec(truth = mean_ssta, estimate = pred_ssta), 2),
+    R2   = round(yardstick::rsq_vec(truth = mean_ssta, estimate = pred_ssta), 2)
+  )
+
+```
+## Also predicting Train data for Shiny
+```{r}
+# indices for training data (years before first test year 1988)
+train_indices <- which(all_data_model$year < 1988)
+train_data_full <- all_data_model[train_indices, ]
+
+# fit models on full training data
+gam_dhw_train <- bam(mean_dhw ~ 
+                       s(soi_anomaly) + 
+                       s(month, bs = "cc", k = 12) + 
+                       shelf +
+                       ti(soi_anomaly, by = shelf) +
+                       ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                     data = train_data_full,
+                     method = "fREML",
+                     discrete = TRUE,
+                     nthreads = 4)
+
+gam_sst_train <- bam(mean_sst ~ 
+                       s(soi_anomaly) + 
+                       s(month, bs = "cc", k = 12) + 
+                       shelf +
+                       ti(soi_anomaly, by = shelf) +
+                       ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                     data = train_data_full,
+                     method = "fREML",
+                     discrete = TRUE,
+                     nthreads = 4)
+
+gam_ssta_train <- bam(mean_ssta ~ 
+                        s(soi_anomaly) + 
+                        s(month, bs = "cc", k = 12) + 
+                        shelf +
+                        ti(soi_anomaly, by = shelf) +
+                        ti(soi_anomaly, month, bs = c("tp", "cc"), k = c(10, 12)),
+                      data = train_data_full,
+                      method = "fREML",
+                      discrete = TRUE,
+                      nthreads = 4)
+
+# predict on training data
+all_data_model$pred_dhw[train_indices] <- predict(gam_dhw_train, newdata = train_data_full)
+all_data_model$pred_sst[train_indices] <- predict(gam_sst_train, newdata = train_data_full)
+all_data_model$pred_ssta[train_indices] <- predict(gam_ssta_train, newdata = train_data_full)
+
+```
+
+## Download Performance Metrics for Report
+```{r}
+write.csv(dhw_metrics, "dhw_performance_metrics.csv", row.names = FALSE)
+write.csv(sst_metrics, "sst_performance_metrics.csv", row.names = FALSE)
+write.csv(ssta_metrics, "ssta_performance_metrics.csv", row.names = FALSE)
+
+```
+
+
+## Download predictions for Shiny
+
+```{r}
+write_csv(all_data_model, here("output_data", "all_data_with_gam_predictions.csv"))
+```
+
