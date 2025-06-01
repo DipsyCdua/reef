@@ -80,6 +80,7 @@ p1 <- ggplot(aug_data, aes(.fitted, .resid)) +
 p1
 
 ```
+
 ```{r}
 # 2. Scale-Location：Check Homoscedasticity--run slowly!!!
 
@@ -504,39 +505,38 @@ write_csv(reef, "~/Desktop/linear_reef_full.csv")
 
 ```{r}
 
-# # Arrange QQ plots together
-# qq_comparison <- p3 + p22 + p222 + 
-#   plot_layout(ncol = 3) + 
-#   plot_annotation(title = "QQ Plots Comparison",
-#                   subtitle = "Left: mean_dhw, Middle: mean_sst, Right: mean_ssta")
-# 
-# qq_comparison
-```
+# Arrange QQ plots together
+qq_comparison <- p3 + p22 + p222 +
+  plot_layout(ncol = 3) +
+  plot_annotation(title = "QQ Plots Comparison",
+                  subtitle = "Left: mean_dhw, Middle: mean_sst, Right: mean_ssta")
 
-```{r}
-# # Arrange Residuals vs Fitted plots together -- vector memory limit of 16.0 Gb reached, see mem.maxVSize()
-# resid_fitted_comparison <- p1 + p11 + p111 + 
-#   plot_layout(ncol = 3) +
-#   plot_annotation(title = "Residuals vs Fitted Comparison",
-#                   subtitle = "Left: mean_dhw, Middle: mean_sst, Right: mean_ssta")
-# 
-# resid_fitted_comparison
+ggsave(here("REPORT_folder/report_images","lr_qqplots.png"), qq_comparison, width = 6, height = 4, dpi = 300)
 
 ```
 
 ```{r}
-# # Arrange Histograms together
-# hist_comparison <- p4 + p33 + p333 + 
-#   plot_layout(ncol = 3) + 
-#   plot_annotation(title = "Residuals Distribution Comparison",
-#                   subtitle = "Left: mean_dhw, Middle: mean_sst, Right: mean_ssta")
-# hist_comparison
-```
+# Arrange Residuals vs Fitted plots together -- vector memory limit of 16.0 Gb reached, see mem.maxVSize()
+resid_fitted_comparison <- p1 + p11 + p111 +
+  plot_layout(ncol = 3) +
+  plot_annotation(title = "Residuals vs Fitted Comparison",
+                  subtitle = "Left: mean_dhw, Middle: mean_sst, Right: mean_ssta")
 
+ggsave(here("REPORT_folder/report_images","lr_resplot.png"), resid_fitted_comparison, width = 6, height = 4, dpi = 300)
+```
 
 ```{r}
+# Arrange Histograms together
+hist_comparison <- p4 + p33 + p333 +
+  plot_layout(ncol = 3) +
+  plot_annotation(title = "Residuals Distribution Comparison",
+                  subtitle = "Left: mean_dhw, Middle: mean_sst, Right: mean_ssta")
+ggsave(here("REPORT_folder/report_images","lr_reshist.png"), hist_comparison, width = 6, height = 4, dpi = 300)
 
+qq_comparison
+hist_comparison
 ```
+
 
 ```{r}
 # 提取mean_dhw模型的性能指标
@@ -685,12 +685,11 @@ combined_plots <- (dhw_plot | sst_plot | ssta_plot) +
   plot_annotation(title = "Comparison of Actual vs Predicted Values")
 
 # Display combined plots
-combined_plots
+
+ggsave(here("REPORT_folder/report_images","lr_graph.png"), combined_plots, width = 6, height = 4, dpi = 300)
+qq_comparison
 ```
 
-```{r}
-
-```
 
 
 ```{r}

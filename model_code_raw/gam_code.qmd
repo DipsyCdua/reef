@@ -291,7 +291,7 @@ plot_df <- newdata %>%
     upper = pred$fit + 2 * pred$se.fit
   )
 
-ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
+dhw_shelf <- ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
   geom_line(size = 1) +
   ylim(0, 16) +
   labs(
@@ -303,7 +303,7 @@ ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf))
   ) +
   theme_minimal()
 
-ggsave(here("REPORT_folder/report_images","soi_shelf_dhw.png"), width = 6, height = 4, dpi = 300)
+ggsave(here("REPORT_folder/report_images","soi_shelf_dhw.png"), dhw_shelf, width = 6, height = 4, dpi = 300)
 ```
 
 ### SST
@@ -317,7 +317,7 @@ plot_df <- newdata %>%
     upper = pred$fit + 2 * pred$se.fit
   )
 
-ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
+sst_shelf <- ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
   geom_line(size = 1) +
   labs(
     title = "Smooth Effect of SOI on SST by Shelf",
@@ -327,7 +327,7 @@ ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf))
     fill = "Shelf Zone"
   ) +
   theme_minimal()
-ggsave(here("REPORT_folder/report_images","soi_shelf_sst.png"), width = 6, height = 4, dpi = 300)
+ggsave(here("REPORT_folder/report_images","soi_shelf_sst.png"), sst_shelf, width = 6, height = 4, dpi = 300)
 
 ```
 
@@ -342,7 +342,7 @@ plot_df <- newdata %>%
     upper = pred$fit + 2 * pred$se.fit
   )
 
-ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
+ssta_shelf <- ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf)) +
   geom_line(size = 1) +
   ylim(-3, 3) +
   xlim(-5, 5) +
@@ -355,7 +355,7 @@ ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = shelf, fill = shelf))
   ) +
   theme_minimal()
 
-ggsave(here("REPORT_folder/report_images","soi_shelf_ssta.png"), width = 6, height = 4, dpi = 300)
+ggsave(here("REPORT_folder/report_images","soi_shelf_ssta.png"), ssta_shelf, width = 6, height = 4, dpi = 300)
 ```
 
 ## Looking at Month Effects
@@ -396,7 +396,7 @@ plot_df <- newdata %>%
   )
 
 # plot by month
-ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
+dhw_month <- ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
   geom_line(size = 1) +
   ylim(0, 16) +
   labs(
@@ -407,7 +407,7 @@ ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels 
   ) +
   theme_minimal()
 
-ggsave(here("REPORT_folder/report_images","soi_month_dhw.png"), width = 6, height = 4, dpi = 300)
+ggsave(here("REPORT_folder/report_images","soi_month_dhw.png"), dhw_month, width = 6, height = 4, dpi = 300)
 ```
 
 ### SST
@@ -424,7 +424,7 @@ plot_df <- newdata %>%
   )
 
 # plot by month
-ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
+sst_month <- ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
   geom_line(size = 1) +
   labs(
     title = "Smooth Effect of SOI on SST by Month",
@@ -434,7 +434,7 @@ ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels 
   ) +
   theme_minimal()
 
-ggsave(here("REPORT_folder/report_images","soi_month_sst.png"), width = 6, height = 4, dpi = 300)
+ggsave(here("REPORT_folder/report_images","soi_month_sst.png"), sst_month, width = 6, height = 4, dpi = 300)
 ```
 
 ### SSTA
@@ -451,7 +451,7 @@ plot_df <- newdata %>%
   )
 
 # plot by month
-ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
+ssta_month <- ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels = 1:12, labels = month.abb))) +
   geom_line(size = 1) +
   ylim(-4, 4) +
   labs(
@@ -461,7 +461,7 @@ ggplot(plot_df, aes(x = soi_anomaly, y = fit_resp, color = factor(month, levels 
     color = "Month"
   ) +
   theme_minimal()
-ggsave(here("REPORT_folder/report_images","soi_month_ssta.png"), width = 6, height = 4, dpi = 300)
+ggsave(here("REPORT_folder/report_images","soi_month_ssta.png"), ssta_month, width = 6, height = 4, dpi = 300)
 ```
 
 

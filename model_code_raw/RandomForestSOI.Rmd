@@ -1,6 +1,6 @@
 ---
-title: "Heatwaves_and_Coral_Recovery"
-author: "Chengxi"
+title: "Random Forest Models"
+author: "Hussen Karimi"
 date: "2025-04-14"
 output: html_document
 ---
@@ -8,12 +8,6 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 
 ```{r}
@@ -26,18 +20,11 @@ library(tidyr)
 library(tidyverse)
 library(randomForest)
 library(caret)
-
+library(libridate) # just in case yearly sampling doesnt work
 ```
 
 ```{r}
-reef <- vroom(here("output_data", "NEW_reef_full.csv"),
-  delim     = ",",
-  col_types = cols(date = col_date(format = ""))  # parse date up front
-) %>%
-  mutate(
-    year  = year(date),
-    month = month(date, label = TRUE, abbr = TRUE)
-  )
+reef = read_csv("~/Documents/GitHub/reef/NEW_fixed_reef_full.csv")
 
 reef
 ```
@@ -57,115 +44,19 @@ cor(clean_data$mean_dhw, as.numeric(clean_data$mean_ssta))
 
 ```
 
+
+
+
+## Random Forest Models
+
 ```{r}
-# Step 1: Aggregate by month (or any desired frequency)
-df_monthly <- clean_data %>%
-  mutate(month = floor_date(date, "month")) %>%
-  group_by(month) %>%
-  summarise(
-    mean_soi_anomaly = mean(soi_anomaly, na.rm = TRUE),
-    mean_dhw = mean(mean_dhw, na.rm = TRUE),
-    mean_sst = mean(mean_sst, na.rm = TRUE),
-    mean_ssta = mean(mean_ssta, na.rm = TRUE))
-
-# Step 2: Plot
-ggplot(df_monthly, aes(x = month, y = mean_soi_anomaly)) +
-  geom_line(color = "steelblue") +
-  labs(
-    title = "Mean SOI Anomaly Over Time",
-    x = "Date",
-    y = "Mean SOI Anomaly"
-  ) +
-  theme_minimal()
-
-ggplot(df_monthly, aes(x = month, y = mean_dhw)) +
-  geom_line(color = "darkred") +
-  labs(
-    title = "Monthly Mean DHW Over Time",
-    x = "Date",
-    y = "Mean DHW"
-  ) +
-  theme_minimal()
-
-ggplot(df_monthly, aes(x = month, y = mean_sst)) +
-  geom_line(color = "darkgreen") +
-  labs(
-    title = "Monthly Mean SST Over Time",
-    x = "Date",
-    y = "Mean Sea Surface Temperature (SST)"
-  ) +
-  theme_minimal()
-
-ggplot(df_monthly, aes(x = month, y = mean_ssta)) +
-  geom_line(color = "darkblue") +
-  labs(
-    title = "Monthly Mean SSTA Over Time",
-    x = "Date",
-    y = "Mean Sea Surface Temperature Anomaly (SSTA)"
-  ) +
-  theme_minimal()
-
-# Step 2: Normalize values (optional, to compare on same scale)
-df_norm <- df_monthly %>%
-  mutate(across(-month, ~ (. - min(.)) / (max(.) - min(.))))
-
-# Step 3: Pivot longer for plotting
-df_long <- df_norm %>%
-  pivot_longer(cols = -month, names_to = "variable", values_to = "value")
-
-# Step 4: Plot all metrics
-ggplot(df_long, aes(x = month, y = value, color = variable)) +
-  geom_line(size = 1) +
-  labs(
-    title = "Monthly Normalized Metrics Over Time",
-    x = "Date",
-    y = "Normalized Value",
-    color = "Metric"
-  ) +
-  theme_minimal()
-```
-```{r}
-# Function to normalize two columns and return long format
-normalize_and_pivot <- function(data, var1, var2) {
-  data %>%
-    select(month, all_of(c(var1, var2))) %>%
-    mutate(across(-month, ~ (. - min(.)) / (max(.) - min(.)))) %>%
-    pivot_longer(-month, names_to = "variable", values_to = "value")
-}
-
-# Plot 1: soi_anomaly + mean_dhw
-df_dhw <- normalize_and_pivot(df_monthly, "mean_soi_anomaly", "mean_dhw")
-plot_dhw <- ggplot(df_dhw, aes(x = month, y = value, color = variable)) +
-  geom_line(size = 1) +
-  labs(title = "SOI Anomaly vs Mean DHW (Normalized)", x = "Date", y = "Normalized Value") +
-  theme_minimal()
-
-# Plot 2: soi_anomaly + mean_sst
-df_sst <- normalize_and_pivot(df_monthly, "mean_soi_anomaly", "mean_sst")
-plot_sst <- ggplot(df_sst, aes(x = month, y = value, color = variable)) +
-  geom_line(size = 1) +
-  labs(title = "SOI Anomaly vs Mean SST (Normalized)", x = "Date", y = "Normalized Value") +
-  theme_minimal()
-
-# Plot 3: soi_anomaly + mean_ssta
-df_ssta <- normalize_and_pivot(df_monthly, "mean_soi_anomaly", "mean_ssta")
-plot_ssta <- ggplot(df_ssta, aes(x = month, y = value, color = variable)) +
-  geom_line(size = 1) +
-  labs(title = "SOI Anomaly vs Mean SSTA (Normalized)", x = "Date", y = "Normalized Value") +
-  theme_minimal()
-
-# Print plots
-print(plot_dhw)
-print(plot_sst)
-print(plot_ssta)
-```
-
-
-## Sampling Data
-```{r}
-tic("Original RF")
-# Sample smaller dataset (50k samples ~ 40s)
-sample_data <- clean_data %>% sample_n(25000)
+# Sampling 1% of data, grouping by year to ensure equal distribution over time
+set.seed(3926)
+sample_data <- clean_data %>%
+  mutate(year = year(date)) %>%
+  group_by(year) %>%
+  sample_frac(0.01) %>% 
+  ungroup()
 
 # Convert categorical variable 'shelf' to a factor
 sample_data$shelf <- as.factor(sample_data$shelf)
@@ -174,301 +65,185 @@ sample_data$year <- as.factor(format(sample_data$date, "%y"))
 
 # Select predictors excluding mean_sst and mean_ssta, plus target mean_dhw
 sample_data <- sample_data %>% select( -date, -lon, -lat)
+
+# Mean_DHW RF Model
 sample_data_reduced <- sample_data %>% select(-mean_sst, -mean_ssta)
 
-# Then split as you did:
-set.seed(3926)
-train_index <- sample(1:nrow(sample_data_reduced), 0.7 * nrow(sample_data_reduced))
-train_data <- sample_data_reduced[train_index, ]
-test_data <- sample_data_reduced[-train_index, ]
+# Set up cross-validation
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+  # classProbs = TRUE
+)
 
-# Train model
-rf_model <- randomForest(mean_dhw ~ ., data = train_data, ntree = 200, mtry=2, importance = TRUE)
+# Define mtry values to test
+tune_grid <- expand.grid(mtry = c(2))  # Adjust based on your features
 
-# Predict
-predictions <- predict(rf_model, test_data)
+# Train Random Forest
+model <- train(
+  mean_dhw ~ .,               # Model formula
+  data = sample_data_reduced,      # Your dataset
+  method = "rf",             # Random Forest
+  trControl = train_control,
+  tuneGrid = tune_grid,      # Specify mtry values
+  ntree = 150,               # Number of trees (default is 500)
+  importance = TRUE          # Compute variable importance
+)
 
-# Evaluate
-rmse <- sqrt(mean((predictions - test_data$mean_dhw)^2))
-mae <- mean(abs(predictions - test_data$mean_dhw))
-ss_total <- sum((test_data$mean_dhw - mean(test_data$mean_dhw))^2)
-ss_res <- sum((test_data$mean_dhw - predictions)^2)
-r_squared <- 1 - (ss_res / ss_total)
+predictions <- model$pred  # Contains predictions from cross-validation
+head(predictions)
+model$results
+head(model$pred[, c("pred", "obs")])
 
-# Output
-cat("RMSE:", rmse, "\n")
-cat("MAE:", mae, "\n")
-cat("R-squared:", r_squared, "\n")
-
-cor(sample_data$soi_anomaly, as.numeric(sample_data$month))
-cor(sample_data$soi_anomaly, as.numeric(sample_data$mean_dhw))
-# little to NO correlation
-toc()
-```
-
-```{r}
-importance(rf_model)
-varImpPlot(rf_model)
+results_dhw1 <- model$pred %>%
+  select(predicted = pred, actual = obs)
 
 
-plot(test_data$mean_dhw, predictions,
-     xlab = "Actual mean_dhw", ylab = "Predicted mean_dhw",
-     main = "Random Forest Predictions vs Actual")
-abline(0, 1, col = "red")
 
 
-```
-## RF for SSTA
-```{r}
-tic("Original RF")
-# Sample smaller dataset (50k samples ~ 40s)
-sample_data <- clean_data %>% sample_n(25000)
-
-# Convert categorical variable 'shelf' to a factor
-sample_data$shelf <- as.factor(sample_data$shelf)
-sample_data$month <- as.factor(format(sample_data$date, "%m"))
-sample_data$year <- as.factor(format(sample_data$date, "%y"))
-
-# Select predictors excluding mean_sst and mean_ssta, plus target mean_dhw
-sample_data <- sample_data %>% select( -date, -lon, -lat)
+# Mean_SST RF Model
 sample_data_reduced <- sample_data %>% select(-mean_dhw, -mean_ssta)
 
-# Then split as you did:
-set.seed(42)
-train_index <- sample(1:nrow(sample_data_reduced), 0.7 * nrow(sample_data_reduced))
-train_data <- sample_data_reduced[train_index, ]
-test_data <- sample_data_reduced[-train_index, ]
+# Set up cross-validation
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+  # classProbs = TRUE
+)
 
-# Train model
-rf_model <- randomForest(mean_sst ~ ., data = train_data, ntree = 200, mtry=2, importance = TRUE)
+# Define mtry values to test
+tune_grid <- expand.grid(mtry = c(2))  # Adjust based on your features
 
-# Predict
-predictions <- predict(rf_model, test_data)
+# Train Random Forest
+model <- train(
+  mean_sst ~ .,               # Model formula
+  data = sample_data_reduced,      # Your dataset
+  method = "rf",             # Random Forest
+  trControl = train_control,
+  tuneGrid = tune_grid,      # Specify mtry values
+  ntree = 150,               # Number of trees (default is 500)
+  importance = TRUE          # Compute variable importance
+)
 
-# Evaluate
-rmse <- sqrt(mean((predictions - test_data$mean_sst)^2))
-mae <- mean(abs(predictions - test_data$mean_sst))
-ss_total <- sum((test_data$mean_sst - mean(test_data$mean_sst))^2)
-ss_res <- sum((test_data$mean_sst - predictions)^2)
-r_squared <- 1 - (ss_res / ss_total)
+predictions_sst <- model$pred  # Contains predictions from cross-validation
+head(predictions_sst)
+sst_metrics <- model$results
+sst_metrics
 
-# Output
-cat("RMSE:", rmse, "\n")
-cat("MAE:", mae, "\n")
-cat("R-squared:", r_squared, "\n")
-
-# little to NO correlation
-toc()
-
-importance(rf_model)
-varImpPlot(rf_model)
+results_sst1 <- model$pred %>%
+  select(predicted = pred, actual = obs)
 
 
-plot(test_data$mean_sst, predictions,
-     xlab = "Actual mean_dhw", ylab = "Predicted mean_dhw",
-     main = "Random Forest Predictions vs Actual")
-abline(0, 1, col = "red")
 
-```
 
-```{r}
-tic("Original RF")
-# Sample smaller dataset (50k samples ~ 40s)
-sample_data <- clean_data %>% sample_n(25000)
-
-# Convert categorical variable 'shelf' to a factor
-sample_data$shelf <- as.factor(sample_data$shelf)
-sample_data$month <- as.factor(format(sample_data$date, "%m"))
-sample_data$year <- as.factor(format(sample_data$date, "%y"))
-
-# Select predictors excluding mean_sst and mean_ssta, plus target mean_dhw
-sample_data <- sample_data %>% select( -date, -lon, -lat)
+# Mean_SSTA RF Model
 sample_data_reduced <- sample_data %>% select(-mean_sst, -mean_dhw)
 
-# Then split as you did:
-set.seed(42)
-train_index <- sample(1:nrow(sample_data_reduced), 0.7 * nrow(sample_data_reduced))
-train_data <- sample_data_reduced[train_index, ]
-test_data <- sample_data_reduced[-train_index, ]
-
-# Train model
-rf_model <- randomForest(mean_ssta ~ ., data = train_data, ntree = 200, mtry=2, importance = TRUE)
-
-# Predict
-predictions <- predict(rf_model, test_data)
-
-# Evaluate
-rmse <- sqrt(mean((predictions - test_data$mean_ssta)^2))
-mae <- mean(abs(predictions - test_data$mean_ssta))
-ss_total <- sum((test_data$mean_ssta - mean(test_data$mean_ssta))^2)
-ss_res <- sum((test_data$mean_ssta - predictions)^2)
-r_squared <- 1 - (ss_res / ss_total)
-
-# Output
-cat("RMSE:", rmse, "\n")
-cat("MAE:", mae, "\n")
-cat("R-squared:", r_squared, "\n")
-
-cor(sample_data$soi_anomaly, as.numeric(sample_data$month))
-cor(sample_data$soi_anomaly, as.numeric(sample_data$mean_dhw))
-# little to NO correlation
-toc()
-
-importance(rf_model)
-varImpPlot(rf_model)
-
-
-plot(test_data$mean_ssta, predictions,
-     xlab = "Actual mean_dhw", ylab = "Predicted mean_dhw",
-     main = "Random Forest Predictions vs Actual")
-abline(0, 1, col = "red")
-
-```
-
-
-## Cross Validation for Hyperparameter Tuning
-
-Takes very long
-```{r}
-# For checking time
-tic("Sample RF")
-
-# Keep all original non-temperature predictors + target mean_dhw
-sample_data_full <- sample_data %>%
-  select(mean_dhw, soi_anomaly, shelf, month, year) # excluded year
-
-# Split into training and testing data
-set.seed(42)
-train_index <- sample(1:nrow(sample_data_full), 0.7 * nrow(sample_data_full))
-train_data <- sample_data_full[train_index, ]
-test_data <- sample_data_full[-train_index, ]
-
-# Define train control with 5-fold cross-validation
-control <- trainControl(method = "cv", number = 5)
-
-# Train the model
-set.seed(123)
-dhw_caret_model <- train(
-  mean_dhw ~ ., 
-  data = train_data,
-  method = "rf",
-  trControl = control,
-  ntree = 150,
-  importance = TRUE
+# Set up cross-validation
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+  # classProbs = TRUE
 )
 
-# Print best model details
-print(dhw_caret_model)
-plot(dhw_caret_model)
+# Define mtry values to test
+tune_grid <- expand.grid(mtry = c(2))  # Adjust based on your features
 
-# Predict on test set
-predictions <- predict(dhw_caret_model, newdata = test_data)
+# Train Random Forest
+model <- train(
+  mean_ssta ~ .,               # Model formula
+  data = sample_data_reduced,      # Your dataset
+  method = "rf",             # Random Forest
+  trControl = train_control,
+  tuneGrid = tune_grid,      # Specify mtry values
+  ntree = 150,               # Number of trees (default is 500)
+  importance = TRUE          # Compute variable importance
+)
+glimpse(sample_data)
+predictions_ssta <- model$pred  # Contains predictions from cross-validation
+head(predictions_ssta)
+ssta_metrics <- model$results
+ssta_metrics
 
-# Evaluate performance
-rmse <- sqrt(mean((predictions - test_data$mean_dhw)^2))
-mae <- mean(abs(predictions - test_data$mean_dhw))
-ss_total <- sum((test_data$mean_dhw - mean(test_data$mean_dhw))^2)
-ss_res <- sum((test_data$mean_dhw - predictions)^2)
-r_squared <- 1 - (ss_res / ss_total)
+results_ssta1 <- model$pred %>%
+  select(predicted = pred, actual = obs)
 
-cat("RMSE:", rmse, "\n")
-cat("MAE:", mae, "\n")
-cat("R-squared:", r_squared, "\n")
-
-toc()
 ```
-
 ```{r}
-
-# Keep all original non-temperature predictors + target mean_dhw
-sample_data_full <- sample_data %>%
-  select(mean_ssta, soi_anomaly, year, shelf, month)
-
-# Split into training and testing data
-set.seed(42)
-train_index <- sample(1:nrow(sample_data_full), 0.7 * nrow(sample_data_full))
-train_data <- sample_data_full[train_index, ]
-test_data <- sample_data_full[-train_index, ]
-
-# Define train control with 5-fold cross-validation
-control <- trainControl(method = "cv", number = 5)
-
-# Train the model
-set.seed(123)
-ssta_caret_model <- train(
-  mean_ssta ~ ., 
-  data = train_data,
-  method = "rf",
-  trControl = control,
-  ntree = 150,
-  importance = TRUE
+combined_results <- data.frame(
+  predicted_dhw = results_dhw1$predicted,
+  actual_dhw    = results_dhw1$actual,
+  predicted_sst = results_sst1$predicted,
+  actual_sst    = results_sst1$actual,
+  predicted_ssta = results_ssta1$predicted,
+  actual_ssta    = results_ssta1$actual
 )
 
-# Print best model details
-print(ssta_caret_model)
-plot(ssta_caret_model)
-
-# Predict on test set
-predictions <- predict(ssta_caret_model, newdata = test_data)
-
-# Evaluate performance
-rmse <- sqrt(mean((predictions - test_data$mean_ssta)^2))
-mae <- mean(abs(predictions - test_data$mean_ssta))
-ss_total <- sum((test_data$mean_ssta - mean(test_data$mean_ssta))^2)
-ss_res <- sum((test_data$mean_ssta - predictions)^2)
-r_squared <- 1 - (ss_res / ss_total)
-
-cat("RMSE:", rmse, "\n")
-cat("MAE:", mae, "\n")
-cat("R-squared:", r_squared, "\n")
+# Export to CSV
+write.csv(combined_results, "combined_results.csv", row.names = FALSE)
 ```
 
+## Visualisations
 ```{r}
+library(patchwork)  # For arranging plots side by side
 
-# Keep all original non-temperature predictors + target mean_dhw
-sample_data_full <- sample_data %>%
-  select(mean_sst, soi_anomaly, year, shelf, month)
+# Scatter plots
+p1 <- ggplot(combined_results, aes(x = actual_dhw, y = predicted_dhw)) +
+  geom_point(alpha = 0.3, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "DHW: Predicted vs Actual", x = "Actual DHW", y = "Predicted DHW") +
+  theme_minimal()
 
-# Split into training and testing data
-set.seed(42)
-train_index <- sample(1:nrow(sample_data_full), 0.7 * nrow(sample_data_full))
-train_data <- sample_data_full[train_index, ]
-test_data <- sample_data_full[-train_index, ]
+p2 <- ggplot(combined_results, aes(x = actual_sst, y = predicted_sst)) +
+  geom_point(alpha = 0.3, color = "darkgreen") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "SST: Predicted vs Actual", x = "Actual SST", y = "Predicted SST") +
+  theme_minimal()
 
-# Define train control with 5-fold cross-validation
-control <- trainControl(method = "cv", number = 5)
+p3 <- ggplot(combined_results, aes(x = actual_ssta, y = predicted_ssta)) +
+  geom_point(alpha = 0.3, color = "purple") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "SSTA: Predicted vs Actual", x = "Actual SSTA", y = "Predicted SSTA") +
+  theme_minimal()
 
-# Define hyperparameter grid for mtry (caret will use ntree = 150 in randomForest)
-tuneGrid <- expand.grid(mtry = c(2, 3, 4, 5, 6))
+# Combine using patchwork
+p1 + p2 + p3
 
-# Train the model
-set.seed(123)
-sst_caret_model <- train(
-  mean_sst ~ ., 
-  data = train_data,
-  method = "rf",
-  trControl = control,
-  tuneGrid = tuneGrid,
-  ntree = 150,
-  importance = TRUE
-)
-
-# Print best model details
-print(sst_caret_model)
-plot(sst_caret_model)
-
-# Predict on test set
-predictions <- predict(sst_caret_model, newdata = test_data)
-
-# Evaluate performance
-rmse <- sqrt(mean((predictions - test_data$mean_sst)^2))
-mae <- mean(abs(predictions - test_data$mean_sst))
-ss_total <- sum((test_data$mean_sst - mean(test_data$mean_sst))^2)
-ss_res <- sum((test_data$mean_sst - predictions)^2)
-r_squared <- 1 - (ss_res / ss_total)
-
-cat("RMSE:", rmse, "\n")
-cat("MAE:", mae, "\n")
-cat("R-squared:", r_squared, "\n")
 ```
+
+## Residual plots
+```{r}
+combined_results$resid_dhw <- combined_results$predicted_dhw - combined_results$actual_dhw
+combined_results$resid_sst <- combined_results$predicted_sst - combined_results$actual_sst
+combined_results$resid_ssta <- combined_results$predicted_ssta - combined_results$actual_ssta
+
+r1 <- ggplot(combined_results, aes(x = actual_dhw, y = resid_dhw)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "DHW Residuals", y = "Residual", x = "Actual DHW") +
+  theme_minimal()
+
+r2 <- ggplot(combined_results, aes(x = actual_sst, y = resid_sst)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "SST Residuals", y = "Residual", x = "Actual SST") +
+  theme_minimal()
+
+r3 <- ggplot(combined_results, aes(x = actual_ssta, y = resid_ssta)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "SSTA Residuals", y = "Residual", x = "Actual SSTA") +
+  theme_minimal()
+
+r1 + r2 + r3
+
+
+ggsave(here("REPORT_folder/report_images","rf_predicted_vs_actual.png"), p1 + p2 + p3, width = 12, height = 4)
+
+ggsave(here("REPORT_folder/report_images","rf_residuals.png"), r1 + r2 + r3, width = 12, height = 4)
+```
+
 

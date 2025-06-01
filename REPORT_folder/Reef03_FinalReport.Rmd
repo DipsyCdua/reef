@@ -1,5 +1,5 @@
 ---
-title: Understanding the relationship between the El Niño Southern Oscillation and Degree Heating Weeks and their effects across the Great Barrier Reef
+title: Understanding the relationship between the El Niño Southern Oscillation and Degree Heating Weeks across the Great Barrier Reef
 
 # Use letters for affiliations
 author:
@@ -21,21 +21,21 @@ author:
     affiliation: h
 address:
   - code: a
-    address: 
+    address: 520482628
   - code: b
-    address: 
+    address: 530005104
   - code: c
-    address: 
+    address: 520404414
   - code: d
-    address: 
+    address: 530516493
   - code: e
-    address: 
+    address: 530318646
   - code: f
-    address: 
+    address: 520377451
   - code: g
-    address: 
+    address: 530528429
   - code: h
-    address: 
+    address: 510343068
     
 # Optional: line of arbitrary text with additional information.
 # Could be used, for example, to mention the bibliographic info in a post-print.
@@ -48,8 +48,7 @@ doi_footer: "https://github.com/DipsyCdua/reef"
 
 # Abstract
 abstract: |
-  executive summary
- 
+  Increasingly frequent and extreme El Niño Southern Oscillation (ENSO) events driven by climate change have heightened the need to protect vulnerable ecosystems such as the Great Barrier Reef (GBR). However, the specific relationship between ENSO events and thermal stress across the reef over time is insufficiently understood. This study aims to address this knowledge gap and examine the appropriateness of using ENSO as an indicator of thermal stress in the GBR. Findings will inform government bodies such as the Great Barrier Marine Park Authority (GBRMPA) during decision-making regarding the implementation of reef protective strategies. This study aimed to predict temperature using the Southern Oscillation Index (SOI) as an ENSO indicator, as well as other temporal and spatial variables. Using historical time series data in the GBR, four models were fitted and evaluated and the Generalised Additive Model (GAM) was selected. ENSO was found to have a significant effect on Degree Heating Weeks (DHW), sea-surface temperature (SST) and SST anomalies (SSTA). El Niño phases were associated with greater thermal stress. Additionally, the effect of ENSO on temperature differed across the continental shelves. These findings suggest that ENSO may be a useful indicator of thermal stress events that increase the risk of bleaching events.These findings suggest that ENSO phases could be implemented into temperature forecasting, as well as monitored according to spatial, temporal and seasonal changes. 
 
 # Optional: One or more keywords
 keywords:
@@ -85,8 +84,6 @@ skip_final_break: true
 # Make sure there is ref list
 # output: pinp::pinp
 
-# Optional: Bibliography 
-bibliography: pinp
 
 # Optional: Enable a 'Draft' watermark on the document
 #watermark: true
@@ -96,14 +93,13 @@ footer_contents: "Reef03 MARS/DATA3888 2025, The University of Sydney"
 # Produce a pinp document
 output: pinp::pinp
 
+# Optional: Bibliography 
+bibliography: pinp.bib
 ---
 ```{r setup, include=FALSE, echo=FALSE}
 library(broom)  
-library(car)  
-library(caret)  
 library(DBI)  
 library(dplyr)  
-library(fs)  
 library(gghighlight)  
 library(ggplot2)  
 library(gratia)  
@@ -113,32 +109,19 @@ library(kableExtra)
 library(knitr)  
 library(leaflet)  
 library(leaps)  
-library(lmtest)  
-library(lme4)  
 library(lubridate)  
 library(mapview)  
-library(MASS)  
-library(mgcv)  
-library(ncdf4)  
 library(parallel)  
 library(patchwork)  
-library(plotly)  
 library(purrr)  
-library(randomForest)  
 library(readr)  
 library(reshape2)  
 library(RColorBrewer)  
-library(RPostgres)  
-library(RSQLite)  
-library(sf)  
-library(shiny)  
-library(shinydashboard)  
 library(stringr)  
 library(terra)  
 library(tidyr)  
 library(tidyverse)  
 library(vroom)  
-library(viridis)
 library(gratia)
 
 
@@ -156,38 +139,93 @@ set.seed(3926)
 # tinytex::reinstall_tinytex(repository = "illinois")
 ```
 
-# Formatting stuff
-
-if (Fabricius, 2000), use \citep{fabricius2000biodiversity}
-
-if (Kayanne, 2016), use \citep{kayanne2016validation}
-
-
-(refer to **Appendix Fig.x.** for <>)
-
-(refer to **Fig.x.**)
-
-#\newpage
-
-
 # Introduction
 
+The Great Barrier Reef (GBR) is the largest world Heritage Listed Area globally and highly biodiverse, supporting many industries related to fisheries, shoreline protection and reef tourism @Fabricius2000. Over recent decades, thermal stress events have increased in both frequency and intensity, leading to coral bleaching events across the GBR @vanWoesik2022. This study aims to examine how ENSO affects temperatures on the GBR, and whether this effect differs with different depth regions of the reef (inner, mid, and outer shelf). Understanding the relationship between ENSO and accumulated heat stress (in this study, DHW) is essential for informing the appropriateness of using ENSO as a predictor of coral bleaching and developing effective policies and legislations to protect the GBR. 
+
+### El Niño Southern Oscillation (ENSO)
+
+ENSO is a natural climate oscillation measured by the Southern Oscillation Index (SOI), with El Niño (negative SOI, weaker trade winds) and La Niña (positive SOI, stronger trade winds) phases impacting Australian weather differently (*figure 1*) @Lough1994. El Niño’s weaker winds lead to hotter conditions in north-east Australia, while La Niña’s stronger trade winds bring wetter conditions (*figure 1*) @McGowanTheobald2017. 
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
-\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\caption{Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
 \end{figure}
+
+### Degree Heating Weeks (DHW)
+
+Degree Heating Weeks is a measure of the intensity and duration of thermal stress, with 4 °C-weeks indicating significant coral bleaching, and 8 °C-weeks indicative of significant mortality @NOAA_CRW_Methodology. It is a valuable measurement of thermal stress as it indicates cumulative temperature anomalies.
+
+The frequency and severity of ENSO fluctuations has increased since the 1960s causing stronger El Niño and La Niña events @Cai2023. This is expected to increase across all future emission scenarios, leading to increases in SST anomalies @Cai2022. Understanding the relationship between ENSO and DHWs may allow an identification of areas that are more at risk in specific phases, or show which sections of the reef are more susceptible to changes in SST. The models aim to explore the impacts of ENSO spatially and temporally across the GBR to inform decision making and policies in the context of increasingly variable future predictions. 
+
+This study is supported by the development of a Shiny app designed to support the Great Barrier Reef Marine Park Authority (GBRMPA) in making informed decisions surrounding policies targeted towards coral health and protection. 
 
 
 
 # Methods
 
+## Data Collection
 
+The data collection process was thorough and extensive, beginning with an initial exploratory review of multiple potential datasets relevant to ocean temperature, ENSO and other climate variables across the GBR. We initially considered site-level meteorological data from published databases, however, these were limited in both spatial and temporal resolution. Ultimately, high-resolution satellite temperature data from the @NOAA_CRW2024 was chosen as it provides consistent, spatially extensive coverage of the GBR from 1985-2025 and across the Coral Sea.
+
+## Data Cleaning & Preprocessing
+
+The NOAA data was retrieved as monthly NetCDF files with spatial and daily temperature data for three measures; DHW, SST and SSTA. The following data cleaning pipeline was followed using R (and sometimes Python) to transform raw data into one dataset with monthly average temperature of the GBR:
+
+1. *Extract raster data and pivot longer*: longitude, latitude and daily temperature data as extracted and reshaped to long format.
+
+2. *Remove land points*: null marine temperature data corresponded to land values, which were dropped.
+
+3. *Aggregate monthly means*: daily data was summarised into monthly averages for every point, then dataframes were joined by year (with duplicate rows for date).
+
+4. *GBR data*: using the @GBRMPA2017 shape files, we limited the data to only the GBR region.
+
+5. *Merge across variables and time*: separate yearly files for temperature were merged across DHW, SST and SSTA by location and time, then unified to one single dataset containing 1987-2025 GBR data.
+
+6. *Continental Shelf*: using bathymetry depth data @GA_HIGHRES_BATHY, the GBR was divided into three continental shelf zones (inner shelf = 0-20 m, mid shelf = 20-40 m, outer shelf = 40-90 m) defined by previous research @Belperio1983 @Maxwell1968. These newly defined continental shelf boundaries were saved as shape files and used in our shiny app.
+
+7. *SOI cleaning & integration*: @NOAA_SOI2025 text file was cleaned in python. SOI monthly SOI anomalies were extracted, defined as SOI variations from the 1990-2010 period. SOI data was merged into the full reef temperature dataframe.
+
+The cleaned data was exported as a CSV file with the dimensions [5,195,088 × 11]. The variables are;
+
+`"mean_dhw", “mean_sst”, “mean_ssta”, “date”, “lon”, “lat”, “shelf”, “soi_anomaly”, “year”, month”`` 
+
+Downsizing the daily time series to monthly averages was a carefully considered tradeoff prioritising spatial resolution. The use of shelf zones also summarises the spatial variation and will allow the models to explore the effects of SOI spatially.
+
+
+## Model Development
+
+The aim of this study was to predict 3 different temperature measures (DHW, SST and SSTA) using SOI anomalies, continental shelf, month, year and the interactions between SOI and all predictors. SOI was chosen as the index for ENSO as it is an extensive dataset that is widely used for recording ENSO. Continental shelf zone was chosen as a predictor variable as different water depths are known to behave differently with respect to temperature. For example, deeper waters are expected to experience more cold water mixing and stratification than shallow waters, potentially impacting the capacity for heat accumulation @DorrellLloyd2022. Four different model approaches were evaluated.
+
+### 1. Linear Regression
+
+To evaluate the suitability of linear regression (LR) for predicting coral reef thermal stress indicators (DHW, SST, and SSTA), linear assumptions were assessed (see **Appendix A** for Q-Q and residual plots). While the SSTA model satisfied normality and homoscedasticity, DHW and SST showed substantial deviations and heteroscedastic residuals. We proceeded under the Central Limit Theorem (CLT) due to sufficient sample size. However, independence is uncertain due to repeated temporal observations. Correlation matrix and VIF (**Appendix A**) were used to check multicollinearity. To determine predictor order, four model selection approaches were used: AIC, BIC, forward, and backward selection. Models were compared using in-sample and out-of-sample Mean Absolute Error (MAE), Root Mean Squared Error (RMSE) and $R^2$. Final selection was based on overall performance: BIC was best for DHW and SST, forward selection for SSTA. While LR captured general trends and supported interpretation, it struggled with non-linear and temporally structured data patterns (**Appendix B**).
+
+### 2. Mixed Effects Model
+
+Mixed effects models (MEM) is another linear model approach that will account for SOI anomalies as a fixed effect, while temporal (year, month) and spatial (reef shelf) variables were included as random effects to isolate the effect of ENSO. The same assumptions were checked for the LR apply to the MEMs (**Appendix A**). After evaluating the performance on the test data, it was  found that the SSTA model performed better than SST and DHW (See *figure 2* for values). Across all the models, continental shelf was a significant random effect where outer reefs were consistently warmer. SOI anomaly had a strong negative effect on SSTA, highlighting its relevance for predicting thermal stress. See **Appendix C** for detailed model performance. However, MEMs are limited by their inability to fully account for temporal autocorrelation and the nonlinear effects of temperature and SOI (which was flagged during the assumption checking).
+
+### 3. Random Forest Regression
+
+The RF model appeared to be more suitable than MEM and LR due to its ability to capture these non-linear relationships. To manage the high computational cost, a 10-fold cross-validation was applied to smaller yearly samples, each representing 1% of the full dataset and hyperparameter tuning was done manually. An optimal number of 150 trees and $mtry = 2$ balanced predictive performance and efficiency. Residual plots showed more reliable predictions than LR and MEM, but the wide scatter indicates the model’s predictive limitations. (See **Appendix D**).
+RF performed best on  SST based on $R^2$, capturing much of the variance across years. For SSTA, performance was highest in terms of MAE and RMSE, suggesting a weak association between SOI anomaly and SSTA. This indicates that positive SOI anomalies may contribute to warmer sea surface anomalies. This result supports the model’s ability to reflect known climatic influences despite some predictive limitations.
+
+
+### 4. Generalised Additive Model
+
+To model nonlinear relationships between SOI and marine temperature across continental shelves, Generalised Additive Models (GAMs) were fitted. These allowed flexible estimation of continuous predictors, inclusion of categorical variables and interactions - particularly with SOI. The aim was both to understand individual effects and to develop a useful forecasting tool. Therefore, two pursued GAM modelling approaches were implemented. First, global GAMs were trained on pre-2015 data, reserving post-2015 observations for evaluation. `month` was modelled using a cyclic cubic spline (`s(month, bs = "cc", k = 12)`), with shelf zone as a fixed effect. Interaction smooths included `ti(soi_anomaly, by = shelf)` for spatial variation in SOI effects, `ti(soi_anomaly, year)` for long-term trends, and `ti(soi_anomaly, month, bs = c("tp", "cc"))` for seasonal modulation (see **Appendix E** for outputs). The second approach was geared towards the Shiny app predictive tool. A rolling-origin forecast validation was implemented to assess the predictive performance over time (implemented for the Shiny predictive tool). The model was refitted each year with cumulative historical data, and forecasts were made for the following year. This approach mimics real-time application and tests temporal generalisability, identifying which years the predictions were problematic - potentially signaling years where SOI and temperature were more correlated (See **Appendix F** for yearly performance).
+
+
+## Model Selection
+
+All four models were evaluated using MAE, RMSE and $R^2$. These were summarised across the four models (See *figure 2*). Overall, GAMs consistently outperformed LR and MEM across all DHW, SST and SSTA, indicating better generalisation. 
+GAMs were also preferred over LR and MEM due to their flexibility in capturing nonlinear relationships without requiring strong parametric assumptions. Unlike RF, which also handle nonlinearity well but are hard to interpret meaningfully, GAMs allow visual and statistical interpretation of smooth functions. This interpretability was crucial for understanding how SOI varied by season, time and shelf zone. A key limitation of GAMs is the assumption of stationarity in smooth functions outside the training period. This may limit extrapolation and long-term forecasting reliability. To mitigate this, we implemented a rolling forward validation approach, where models were re-fit on all years prior to the target year. This strategy allowed us to assess performance across time while minimising information leakage. The random forest model was also not selected due to its significant computational costs when using large data (millions of rows), hence additionally efficiency was a factor in our decision. Full model specifications and smooth term plots are provided in **Appendices E, G, and H**.
 
 
 ```{r, message=FALSE, include=FALSE}
 # read in performance metrics
+# lr
 lr <- vroom(here("model_code_raw", "Linear regression performance metrics.csv"),
   delim     = ",",
   col_types = cols(date = col_date(format = ""))
@@ -196,6 +234,7 @@ lr <- vroom(here("model_code_raw", "Linear regression performance metrics.csv"),
          Variable = `Linear regression`) |>
   mutate(Model = "LR")
 
+# mem
 mm <- vroom(here("model_code_raw", "mixed_model_dhw_sst_ssta by Tingzhao.csv"),
   delim     = ",",
   col_types = cols(date = col_date(format = ""))
@@ -204,7 +243,16 @@ mm <- vroom(here("model_code_raw", "mixed_model_dhw_sst_ssta by Tingzhao.csv"),
   mutate(Model = "MEM")
 
 # rf
+rf <- vroom(here("model_code_raw", "Random_forest_performance_metrics.csv"),
+  delim     = "\t",
+  col_types = cols(date = col_date(format = ""))
+) |>
+  rename(Variable = `Random Forest`,
+         R2 = `R^2`) |>
+  mutate(Model = "RF") |>
+  na.omit()
 
+# gam
 gam <- vroom(here("model_code_raw", "gam_model_full_eval_metrics.csv"),
   delim     = ",",
   col_types = cols(date = col_date(format = ""))
@@ -213,7 +261,7 @@ gam <- vroom(here("model_code_raw", "gam_model_full_eval_metrics.csv"),
   mutate(Model = "GAM")
 
 # join!
-combined_pm <- bind_rows(lr, mm, gam)
+combined_pm <- bind_rows(lr, mm, gam, rf)
 
 # plot
 pm_data <- combined_pm |>
@@ -230,41 +278,69 @@ ggplot(pm_data, aes(x = Variable, y = Value, fill = Model)) +
   theme_minimal(base_size = 8)
 ```
 
-
 # Results
 
+All three global GAMs revealed significant nonlinear effects of the SOI anomaly, year, and month on temperature responses ($p < 0.001$). For *SST*, the model explained 74.1% of deviance (adj. $R^2$ = 0.758), with a strong interaction between SOI and shelf zone O (p < 0.001), indicating spatially heterogeneous ENSO effects. *DHW* and *SSTA* models explained 65.2% and 37.5% of deviance respectively, with similarly strong temporal smooths and modest spatial interactions. Parametric effects showed that outer shelf areas consistently differed from inner shelf areas, particularly for *SST*. Full summaries and smooth plots are detailed in **Appendix E, G and H**. The models revealed distinct response patterns across temperature metrics (refer to Appendix E and F). First, DHW exhibited a steep increase under strong negative SOI anomalies. Conversely, DHW remained near zero across neutral and positive SOI values (See *figure 3*). Second, SST showed a modest U-shaped relationship with SOI anomaly, with slightly elevated SSTs observed under both El Niño and La Niña conditions. The lowest SST values occurred near neutral SOI values (See *figure 4*). However, the overall effect size was small and confidence intervals widened at the distribution tails. Finally, SSTA appeared to increase non-linearly with decreasing SOI anomaly (See *figure 5*). 
+
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
-\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\includegraphics[width=0.5\textwidth]{report_images/dhw_soi.png}
+\caption{DHW: SOI Smoothed Function}
 \end{figure}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
-\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\includegraphics[width=0.5\textwidth]{report_images/sst_soi.png}
+\caption{SST: SOI Smoothed Function}
 \end{figure}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.5\textwidth]{report_images/enso_cycles.png}
-\caption{Figure 1 - Neutral, La Nina, and El Nino ENSO phase, Bureau of Meteorology}
+\includegraphics[width=0.5\textwidth]{report_images/ssta_soi.png}
+\caption{SSTA: SOI Smoothed Function}
 \end{figure}
+
+
+# Shiny Application
+
+Our Shiny application enables users to explore how ENSO variability relates to sea-surface temperature across the GBR (refer to **Appendix I**). It features four main tabs: **Introduction, Heat Map of the GBR, ENSO vs Temperature**, and **Predictions**.
+
+The **Introduction** tab outlines the scientific context and purpose of the app.
+
+In the **Heat Map** tab, users can select a year (1987–2024) and temperature variable (DHW, SST, or SSTA) to visualise annual spatial patterns across the reef. Bathymetric shelf zones (Inner, Mid, Outer) can be toggled, and users can compare two years side-by-side to identify historical trends or hotspots.
+
+The **ENSO vs Temperature** tab links monthly SOI values with reef temperatures. Users can select a year to see how DHW, SST, or SSTA varies by month and shelf zone.
+
+Finally, the **Predictions** tab presents GAM outputs. Users can compare predicted vs observed temperatures for a selected year and variable, with shelf overlays for added context. A summary below the maps highlights how SOI and other predictors influence reef temperatures, offering insights into thermal risk and model performance.
+
 
 
 # Discussion
 
+The results of the GAMs suggest that El Niño phases are associated with significant thermal stress accumulation while La Niña and neutral phases are minimally related to thermal stress. This aligns with existing evidence that El Niño causes warmer conditions in eastern Australia due to reduced cloud cover, greater solar radiation and reduced mixing of deep, cold water @McGowanTheobald2023. Similarly, SST was greater during El Niño phases, but was also greater during La Niña phases, as was SSTA. High SST and SSTA during a La Niña, although counterintuitive, aligns with recent evidence of coral bleaching during the 2021-2022 La Niña event @McGowanTheobald2023. This heat stress observed in La Niña is likely a result of anomalous atmospheric circulation patterns that brought weather conditions similar to an El Niño phase @Gillett2023. It is unclear whether this is occurring due to worsening climate change or whether it is an anomalous occurrence @McGowanTheobald2023. 
 
+While the effect of ENSO on temperature was modelled spatially across the GBR, the resolution of the data was not high enough to model the directions of the interactions at an individual reef scale and thus was unable to detect significant differences across shelf zones. Given shelf zones were characterised by water depth, observed differences in relation to ENSO could reflect variations in water column mixing and stratification across deep and shallow areas, as well as differing levels of heat retention capacity @DorrellLloyd2022. Future studies investigating the differing effects of ENSO across different areas on the GBR (e.g. North, Central, South or longitude and latitude) could provide valuable insight into the spatial effectiveness of ENSO as an indicator of coral bleaching. Moreover, seasonal variations in ENSO patterns may also warrant future research,  as although seasonal trends in temperature are well known, the role of ENSO phases may impact the GBR differently throughout the year. Additionally, expanding the dataset to include other environmental drivers (e.g., wind speed, cloud cover) and reef-health indicators (e.g., coral biodiversity, bleaching variables) would enhance interpretability and relevance. However, data quality and availability remain major constraints, highlighting the need for greater investment in long-term ecological monitoring.
+
+Despite the limitations of the models, the findings still provide insight into the temporal and spatial variations of temperature in relation to ENSO. The model also demonstrates that some regions may be more influenced by ENSO than others, and as such, region should be closely monitored in the future. Ultimately, understanding that ENSO is highly correlated with temperature on the GBR allows for more accurate and precise modelling and forecasting of bleaching associated with climate change, while informing future management responses and furthering our understanding of the future of reefs globally.
+ 
+
+# Conclusion
+
+This study addressed the knowledge gap surrounding the spatial-temporal relationship of ENSO and temperature variables across the GBR. Through utilising the capabilities of RF and GAM models on open-source datasets, it was found that ENSO is an effective indicator of DHW, SST and SSTA, and thus is an appropriate predictor of coral bleaching. These findings offer a reliable method of predicting bleaching events and suggest that current predictive models of coral bleaching would be enhanced with the addition of ENSO as a factor. Ultimately, the findings of this study inform future management of the GBR.
+
+
+
+\newpage
 
 # Contributions
 
 ##### Charley Johnson
 
-
+Researching and collecting scientific literature to inform the relevant variables, datasets, and direction of this project. Worked with the group on the presentation script, and presented the discussion section of it. Worked with the group on the introduction and discussion sections of the report. 
 
 ##### Chengxi Duan
 
-
+Do data exploration and cleaning, maintained the GitHub repository, designed the Shiny app’s GUI, and served as the primary developer. Collaborating with Imane to finalise functionality and debugged issues to ensure a robust application. Additionally, write the Shiny app description in the project report.
 
 ##### Fiona Li
 
@@ -272,23 +348,23 @@ Finding and collating scientific literature over the semester to help develop th
 
 ##### Hussain Karimi
 
-
+Data exploration, and researching possible solutions to data problems. Planning and performing initial tests and explorations on data. Tested and tuned the RF models using CV, and created visualisations for performance. Assisting in group presentation with script, and writing model evaluation part and made plots for the report. 
 
 ##### Imane Lattab
 
-Data exploration and collection. Data cleaning & preprocessing the relevant output data for modelling, shiny and report. Worked on GAM model. Collaborated with Chengxi to finalise shiny app. Organised model development and evaluation methods. Worked with others on presentation script. Wrote results, and some of methods and results. Created reproducible report.
-
+Data exploration and collection. Data cleaning & preprocessing the relevant output data for modelling, shiny and report. Worked on GAM model. Collaborated with Chengxi to finalise and debug shiny app. Organised model development and evaluation methods. Worked with others on presentation script. WWrote methods, results and edited report. Created reproducible report.
 
 ##### Kunlei Zhang
 
-
+Conducted data exploration and collection, and created variable correlation heatmaps to assist the team in identifying collinearity patterns during EDA. Led the development and optimization of linear regression models, performing prediction, visualization and evaluation. Contributed to feature selection, cross-validation design, and wrote the model section with figure analysis for the report.
 
 ##### Oscar Lo Lu
 
-
+Worked on researching marine-specific literature surrounding background information and datasets to help inform decisions and discussions around the project. Worked on the presentation slides and presented the results section. Helped with writing the introduction and discussion of the report and helped make final edits to all sections.
 
 ##### Tingzhao Dai
 
+I led the development of mixed effects models for DHW, SST, and SSTA, conducted performance evaluation, and produced key visualizations for stakeholder decision-making.
 
 
 \newpage
@@ -316,7 +392,24 @@ Data exploration and collection. Data cleaning & preprocessing the relevant outp
 \includegraphics[width=0.5\textwidth]{report_images/lr_graph.png}
 \end{center}
 
-## Appendix C: Global GAM Model Summaries
+## Appendix C: Mixed Effects Model Plots
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/mem_plot.png}
+\end{center}
+
+## Appendix D: Random Forest Model Plots
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/rf_predicted_vs_actual.png}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.5\textwidth]{report_images/rf_residuals.png}
+\end{center}
+
+
+## Appendix E: Global GAM Model Summaries
 
 ```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
 kable(read.csv(here("model_code_raw", "gam_dhw_smooth_terms.csv")), digits = 3, caption = "Smooth Terms for GAM (DHW)")
@@ -330,23 +423,21 @@ kable(read.csv(here("model_code_raw", "gam_sst_smooth_terms.csv")), digits = 3, 
 kable(read.csv(here("model_code_raw", "gam_ssta_smooth_terms.csv")), digits = 3, caption = "Smooth Terms for GAM (SSTA)")
 ```
 
+## Appendix F: Rolling-Validation GAM Performance
 
-## Appendix D: Global GAM 'SOI' Smoothed Functionss
+```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
+kable(read.csv(here("model_code_raw", "dhw_performance_metrics.csv")), digits = 3, caption = "DHW: Yearly GAM Predictions")
+```
 
-\begin{center}
-\includegraphics[width=0.5\textwidth]{report_images/dhw_soi.png}
-\end{center}
+```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
+kable(read.csv(here("model_code_raw", "sst_performance_metrics.csv")), digits = 3, caption = "SST: Yearly GAM Predictions")
+```
 
-\begin{center}
-\includegraphics[width=0.5\textwidth]{report_images/sst_soi.png}
-\end{center}
+```{r, echo=FALSE, out.width="80%", out.height="200px", fig.pos="H"}
+kable(read.csv(here("model_code_raw", "ssta_performance_metrics.csv")), digits = 3, caption = "SSTA: Yearly GAM Predictions")
+```
 
-\begin{center}
-\includegraphics[width=0.5\textwidth]{report_images/ssta_soi.png}
-\end{center}
-
-
-## Appendix E: Global GAM 'SOI' Smoothed Functions by 'Shelf'
+## Appendix G: Global GAM 'SOI' Smoothed Functions by 'Shelf'
 
 \begin{center}
 \includegraphics[width=0.5\textwidth]{report_images/soi_shelf_dhw.png}
@@ -361,7 +452,7 @@ kable(read.csv(here("model_code_raw", "gam_ssta_smooth_terms.csv")), digits = 3,
 \end{center}
 
 
-## Appendix F: Global GAM 'SOI' Smoothed Functions by 'Month'
+## Appendix H: Global GAM 'SOI' Smoothed Functions by 'Month'
 
 \begin{center}
 \includegraphics[width=0.5\textwidth]{report_images/soi_month_dhw.png}
@@ -375,7 +466,7 @@ kable(read.csv(here("model_code_raw", "gam_ssta_smooth_terms.csv")), digits = 3,
 \includegraphics[width=0.5\textwidth]{report_images/soi_month_ssta.png}
 \end{center}
 
-## Appendix G: Shiny Application
+## Appendix I: Shiny Application
 
 \begin{center}
 \includegraphics[width=0.5\textwidth]{report_images/shiny_map_a.png}
