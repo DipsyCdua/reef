@@ -188,3 +188,52 @@ print(mixed_perf)
 write.csv(mixed_perf, "/Users/Daitingzhao/Downloads/mixed_model_dhw_sst_ssta.csv", row.names = FALSE)
 ```
 
+```{r}
+set.seed(3926)
+reef_full <- read.csv("/Users/Daitingzhao/Downloads/NEW_fixed_reef_full.csv")
+reef_full$date <- as.Date(reef_full$date)
+reef_full$year <- format(reef_full$date, "%Y")
+reef_full$month <- format(reef_full$date, "%m")
+
+n <- nrow(reef_full)
+train_index <- sample(1:n, size = 0.8 * n)
+train_data <- reef_full[train_index, ]
+test_data <- reef_full[-train_index, ]
+
+# 1. DHW - log transformed model
+train_data$log_dhw <- log1p(train_data$mean_dhw)
+log_model_dhw <- lmer(log_dhw ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+test_data$pred_dhw <- expm1(predict(log_model_dhw, newdata = test_data, allow.new.levels = TRUE))
+
+# 2. SST model
+sst_model <- lmer(mean_sst ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+test_data$pred_sst <- predict(sst_model, newdata = test_data, allow.new.levels = TRUE)
+
+# 3. SSTA model
+ssta_model <- lmer(mean_ssta ~ soi_anomaly + (1 | shelf) + (1 | year) + (1 | month), data = train_data)
+test_data$pred_ssta <- predict(ssta_model, newdata = test_data, allow.new.levels = TRUE)
+
+library(ggplot2)
+library(gridExtra)
+
+p1 <- ggplot(test_data, aes(x = mean_dhw, y = pred_dhw)) +
+  geom_point(alpha = 0.5, color = "#1f77b4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  labs(title = "DHW: Actual vs Predicted", x = "Actual DHW", y = "Predicted DHW") +
+  theme_minimal()
+
+p2 <- ggplot(test_data, aes(x = mean_sst, y = pred_sst)) +
+  geom_point(alpha = 0.5, color = "#ff7f0e") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  labs(title = "SST: Actual vs Predicted", x = "Actual SST", y = "Predicted SST") +
+  theme_minimal()
+
+p3 <- ggplot(test_data, aes(x = mean_ssta, y = pred_ssta)) +
+  geom_point(alpha = 0.5, color = "#2ca02c") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  labs(title = "SSTA: Actual vs Predicted", x = "Actual SSTA", y = "Predicted SSTA") +
+  theme_minimal()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
